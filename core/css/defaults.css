@@ -188,6 +188,11 @@ button.btn-connect,
 	margin-left: 9px;
 }
 
+.machine-name {
+
+	color: #FFF;
+}
+
 .gcode {
 	display: inline;
 	padding-left: 12px !important;
@@ -650,7 +655,7 @@ button.btn-connect,
 	padding-bottom: 0px;
 }
 
-tr[data-fan="tool"] > td:first-child > button {
+tr[data-fan="print"] > td:first-child > button {
 	width: 100%;
 }
 
@@ -716,20 +721,20 @@ tr[data-fan="tool"] > td:first-child > button {
 	border: 0px;
 }
 
-#page_job .checkbox {
+#page_print .checkbox {
 	margin-top: 0px;
 	margin-bottom: 0px;
 }
 
-#page_job .col-left {
+#page_print .col-left {
 	padding-right: 0px;
 }
 
-#page_job .slider-container {
+#page_print .slider-container {
 	padding-right: 12px;
 }
 
-#page_job .progress {
+#page_print .progress {
 	margin-bottom: 9px;
 }
 
@@ -760,15 +765,15 @@ tr[data-fan="tool"] > td:first-child > button {
 	z-index: 1;
 }
 
-#panel_job_control > div > div.btn-group-justified {
+#panel_print_control > div > div.btn-group-justified {
 	padding-bottom: 6px;
 }
 
-#panel_job_control > div > div.btn-group-justified:last-child {
+#panel_print_control > div > div.btn-group-justified:last-child {
 	padding-bottom: 0px;
 }
 
-#panel_job_control .btn {
+#panel_print_control .btn {
 	padding-left: 0px;
 	padding-right: 0px;
 }
@@ -1070,10 +1075,6 @@ label[for="dropdown_language"] {
 	margin-bottom: 0px;
 }
 
-#page_display button.btn-upload {
-	margin-bottom: 15px;
-}
-
 #page_settings {
 	padding-bottom: 15px;
 }
@@ -1093,12 +1094,8 @@ label[for="dropdown_language"] {
 	margin-top: 6px;
 }
 
-#page_sysedit {
-	margin: -15px;
-}
-
 #page_sysedit button.btn-upload {
-	margin-bottom: 30px;
+	margin-bottom: 15px;
 }
 
 .tab-content {
@@ -1341,10 +1338,6 @@ label[for="dropdown_language"] {
 #div_y_controls,
 #div_z_controls {
 	margin-top: 20px;
-}
-
-#div_mesh_y {
-	margin-top: 15px;
 }
 
 
