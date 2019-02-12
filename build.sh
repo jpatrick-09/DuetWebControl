@@ -11,7 +11,7 @@
 # Make sure all tools are accessible via your PATH environment variable!
 
 # Optional paths to the required tools
-YUI_COMPRESSOR=yui-compressor
+YUI_COMPRESSOR=yuicompressor
 UGLIFYJS=uglifyjs
 GZIP=gzip
 
@@ -38,7 +38,7 @@ if [ -f !"./core/reprap.htm" ] ; then
 fi
 
 # Get the current version
-VERSION=$(grep -oP "Duet Web Control v\K(.*)" ./core/reprap.htm)
+VERSION=1.22.5
 
 # Create an empty build directory and clean up
 if [ -d "./build" ] ; then
@@ -57,10 +57,10 @@ $GZIP -c ./core/favicon.ico > ./build/favicon.ico.gz
 echo "Changing CSS and JS paths"
 cp ./core/reprap.htm ./build/reprap.htm
 cp ./core/html404.htm ./build/html404.htm
-sed -i "/<link href/d" ./build/reprap.htm
-sed -i "/<script src/d" ./build/reprap.htm
-sed -i "/<!-- CSS/a	<link href=\"css/dwc.css\" rel=\"stylesheet\">" ./build/reprap.htm
-sed -i "/<!-- Placed/a <script src=\"js/dwc.js\"></script>" ./build/reprap.htm
+gsed -i "/<link href/d" ./build/reprap.htm
+gsed -i "/<script src/d" ./build/reprap.htm
+gsed -i "/<!-- CSS/a	<link href=\"css/dwc.css\" rel=\"stylesheet\">" ./build/reprap.htm
+gsed -i "/<!-- Placed/a <script src=\"js/dwc.js\"></script>" ./build/reprap.htm
 
 # Compress HTML files
 echo "Compressing HTML file"
@@ -74,7 +74,7 @@ $GZIP -c ./core/language.xml > ./build/language.xml.gz
 # Minify and compress CSS files
 echo "Minifying and compressing CSS files"
 mkdir ./build/css
-CSS_FILES=$(grep -e "\.css" ./core/reprap.htm | cut -d '"' -f 2 | sed -e 's/^/core\//')
+CSS_FILES=$(grep -e "\.css" ./core/reprap.htm | cut -d '"' -f 2 | gsed -e 's/^/core\//')
 for FILE in $CSS_FILES; do
 	echo "- Minifying $FILE..."
 	$YUI_COMPRESSOR $FILE >> ./build/css/dwc.css
@@ -88,7 +88,7 @@ for THEME_FILE in $CSS_THEMES; do
 done
 
 echo "- Changing font paths and compressing minified CSS file"
-sed -i "s/-halflings-regular\./\./g" ./build/css/dwc.css
+gsed -i "s/-halflings-regular\./\./g" ./build/css/dwc.css
 $GZIP -c ./build/css/dwc.css > ./build/css/dwc.css.gz
 rm ./build/css/dwc.css
 
@@ -97,7 +97,7 @@ echo "Minifying and concatenating JS files"
 mkdir ./build/js
 echo "var dwcVersion = \"$VERSION\";" > ./build/js/dwc.js
 
-JS_FILES=$(grep -e "\.js" ./core/reprap.htm | cut -d '"' -f 2 | sed -e 's/^/core\//' | tr '\n' ' ')
+JS_FILES=$(grep -e "\.js" ./core/reprap.htm | cut -d '"' -f 2 | gsed -e 's/^/core\//' | tr '\n' ' ')
 for FILE in $JS_FILES; do
 	if [[ $FILE == "core/js/3rd-party/"* ]]; then
 		echo "- Minifying $FILE..."
@@ -122,10 +122,10 @@ $GZIP -c ./core/fonts/glyphicons-halflings-regular.ttf > ./build/fonts/glyphicon
 $GZIP -c ./core/fonts/glyphicons-halflings-regular.woff > ./build/fonts/glyphicons.woff.gz
 $GZIP -c ./core/fonts/glyphicons-halflings-regular.woff2 > ./build/fonts/glyphicons.woff2.gz
 
-# Add image files (optional)
-#echo "Adding images"
-#mkdir ./build/img
-#cp ./core/img/* ./build/img/
+#Add image files (optional)
+echo "Adding images"
+mkdir ./build/img
+cp ./core/img/* ./build/img/
 
 # Now build DWC for wired Duets
 echo "=> Building final Duet Web Control package"
