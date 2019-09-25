@@ -20,7 +20,7 @@ export default {
 		isBusy() { return this.isConnecting || this.isDisconnecting },
 		buttonColor() {
 			return this.isBusy ? 'warning'
-				: (this.isConnected ? 'success' : 'primary');
+				: (this.isConnected ? 'primary' : 'success');
 		},
 		buttonIcon() {
 			return this.isConnected ? 'close' : 'power_settings_new';

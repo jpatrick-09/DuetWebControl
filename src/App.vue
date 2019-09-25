@@ -1,11 +1,21 @@
 <style>
+
 #title:not(:hover) {
 	color: inherit;
 }
 #title {
 	margin-right: 20px;
+	display:inline-flex;
 }
 
+.v-toolbar__title {
+	display: inline-flex;
+}
+
+.logo {
+	display:inline-flex;
+	margin-right:20px;
+}
 .container {
 	padding: 4px;
 }
@@ -44,6 +54,9 @@ input::-webkit-inner-spin-button {
 a:not(:hover) {
 	text-decoration: none;
 }
+.v-list__group__header--active .v-list__group__header__prepend-icon .v-icon {
+	color: #758bae !important;
+}
 </style>
 
 <template>
@@ -76,6 +89,7 @@ a:not(:hover) {
 			<v-toolbar-side-icon @click.stop="drawer = !drawer" v-tab-control></v-toolbar-side-icon>
 			<v-toolbar-title>
 				<!-- TODO: Optional OEM branding -->
+				<img class="logo" src="./assets/DWC_3DP_logo.png" width="55px">
 				<a id="title" v-tab-control>{{ name }}</a>
 			</v-toolbar-title>
 			<connect-btn v-if="isLocal" class="hidden-xs-only"></connect-btn>

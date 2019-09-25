@@ -43,7 +43,7 @@ table.extra tr > td:first-child {
 				</a>
 				<v-card>
 					<v-layout justify-center column class="pt-2 px-2">
-						<v-btn block color="primary" class="mb-3 pa-2" :disabled="!canTurnEverythingOff" @click="turnEverythingOff">
+						<v-btn block color="info" class="mb-3 pa-2" :disabled="!canTurnEverythingOff" @click="turnEverythingOff">
 							<v-icon class="mr-1">power</v-icon> {{ $t('panel.tools.turnEverythingOff') }}
 						</v-btn>
 
