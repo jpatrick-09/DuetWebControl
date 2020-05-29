@@ -1,44 +1,44 @@
 <template>
 	<v-card>
 		<v-card-title class="pb-0">
-			<v-icon small class="mr-1">ac_unit</v-icon> Fans
+			<v-icon small class="mr-1">mdi-fan</v-icon> {{ $t('panel.fans.caption') }}
 			<v-spacer></v-spacer>
 			<v-menu offset-y right auto>
-				<template slot="activator">
-					<a v-show="!uiFrozen && controllableFans.length" href="#" @click.prevent="">
-						Change Visibility
+				<template #activator="{ on }">
+					<a v-show="!uiFrozen && fans.some(fan => fan && fan.thermostatic.heaters.length === 0)" v-on="on" href="javascript:void(0)" class="subtitle-2">
+						{{ $t('panel.fans.changeVisibility') }}
 					</a>
 				</template>
 
 				<v-list>
-					<v-list-tile @click="toggleFanVisibility({ machine: selectedMachine, fan: -1})">
+					<v-list-item v-show="currentTool && currentTool.fans.length > 0" @click="toggleFanVisibility(-1)">
 						<v-icon class="mr-1">
-							{{ (displayedFans.indexOf(-1) !== -1) ? 'check_box' : 'check_box_outline_blank' }}
+							{{ (displayedFans.indexOf(-1) !== -1) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank' }}
 						</v-icon>
-						Tool Fan
-					</v-list-tile>
+						{{ $t('panel.fans.toolFan') }}
+					</v-list-item>
 
-					<v-list-tile v-for="(fan, index) in controllableFans" :key="index" @click="toggleFanVisibility(index)">
-						<v-icon class="mr-1">
-							{{ (displayedFans.indexOf(index) !== -1) ? 'check_box' : 'check_box_outline_blank' }}
-						</v-icon>
-						{{ fan.name ? fan.name : `Fan ${index}` }}
-					</v-list-tile>
+					<template v-for="(fan, index) in fans" >
+						<v-list-item v-if="fan && fan.thermostatic.heaters.length === 0" :key="index" @click="toggleFanVisibility(index)">
+							<v-icon class="mr-1">
+								{{ (displayedFans.indexOf(index) !== -1) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank' }}
+							</v-icon>
+							{{ fan.name ? fan.name :$t('panel.fans.fan', [index]) }}
+						</v-list-item>
+					</template>
 				</v-list>
 			</v-menu>
 		</v-card-title>
 		
-		<v-layout v-if="visibleFans.length" column class="px-3">
-			<v-flex v-for="fan in visibleFans" :key="fan" class="pt-2">
-				<span>
-					{{ (fan === -1) ? 'Tool Fan' : (fans[fan].name ? fans[fan].name : `Fan ${fan}`) }}
-				</span>
+		<v-card-text class="d-flex flex-column pb-0">
+			<div v-for="fan in visibleFans" :key="fan" class="d-flex flex-column pt-2">
+				{{ (fan === -1) ? $t('panel.fans.toolFan') : (fans[fan].name ? fans[fan].name : $t('panel.fans.fan', [fan])) }}
 				<slider :value="getFanValue(fan)" @input="setFanValue(fan, $event)" :disabled="uiFrozen"></slider>
-			</v-flex>
-		</v-layout>
+			</div>
+		</v-card-text>
 
-		<v-alert type="info" :value="!visibleFans.length">
-			No Fans Configured
+		<v-alert type="info" :value="!visibleFans.length" class="mb-0">
+			{{ $t('panel.fans.noFans') }}
 		</v-alert>
 	</v-card>
 </template>
@@ -50,15 +50,18 @@ import { mapState, mapGetters, mapActions, mapMutations } from 'vuex'
 
 export default {
 	computed: {
+		...mapState(['selectedMachine']),
 		...mapGetters(['uiFrozen']),
 		...mapState('machine/model', ['fans']),
 		...mapGetters('machine/model', ['currentTool']),
 		...mapState('machine/settings', ['displayedFans']),
-		controllableFans() {
-			return this.fans.filter(fan => !fan.thermostatic.control);
-		},
 		visibleFans() {
-			return this.displayedFans.filter(fan => (fan === -1) || (fan < this.fans.length && !this.fans[fan].thermostatic.control), this);
+			return this.displayedFans.filter(function(fan) {
+				if (fan === -1) {
+					return this.currentTool && this.currentTool.fans.length > 0;
+				}
+				return fan < this.fans.length && this.fans[fan] && this.fans[fan].thermostatic.heaters.length === 0;
+			}, this);
 		},
 		toolFan() {
 			if (this.currentTool && this.currentTool.fans.length) {
@@ -71,7 +74,10 @@ export default {
 		...mapActions('machine', ['sendCode']),
 		...mapMutations('machine/settings', ['toggleFanVisibility']),
 		getFanValue(fan) {
-			return this.fans.length ? Math.round(this.fans[(fan === -1) ? this.toolFan : fan].value * 100) : 0;
+			if (fan === -1) {
+				fan = this.toolFan;
+			}
+			return (fan >= 0 && fan < this.fans.length && this.fans[fan]) ? Math.round(this.fans[fan].requestedValue * 100) : 0;
 		},
 		setFanValue(fan, value) {
 			if (fan === -1) {

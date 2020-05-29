@@ -2,20 +2,21 @@
 	<v-dialog v-model="shown" persistent width="360">
 		<v-card>
 			<v-form ref="form" @submit.prevent="submit">
-				<v-card-title>
-					<span class="headline">{{ $t('dialog.connect.title') }}</span>
+				<v-card-title class="headline">
+					{{ $t('dialog.connect.title') }}
 				</v-card-title>
 
 				<v-card-text>
 					{{ $t('dialog.connect.prompt') }}
-					<v-text-field v-if="!mustConnect" ref="hostname" v-model="hostname" :placeholder="$t('dialog.connect.hostPlaceholder')" :rules="[v => !!v || $t('dialog.connect.hostRequired')]" required></v-text-field>
-					<v-text-field ref="password" type="password" :placeholder="$t(passwordRequired ? 'dialog.connect.passwordPlaceholder' : 'dialog.connect.passwordPlaceholderOptional')" v-model="password" :rules="[v => !!v || !passwordRequired || $t('dialog.connect.passwordRequired')]" :required="passwordRequired"></v-text-field>
+
+					<v-text-field v-show="!mustConnect" v-model="hostname" :autofocus="!mustConnect" :placeholder="$t('dialog.connect.hostPlaceholder')" :rules="[v => !!v || $t('dialog.connect.hostRequired')]" required></v-text-field>
+					<v-text-field ref="password" type="password" :placeholder="$t(passwordRequired ? 'dialog.connect.passwordPlaceholder' : 'dialog.connect.passwordPlaceholderOptional')" v-model="password" :autofocus="mustConnect" :rules="[v => !!v || !passwordRequired || $t('dialog.connect.passwordRequired')]" :required="passwordRequired"></v-text-field>
 				</v-card-text>
 
 				<v-card-actions>
 					<v-spacer></v-spacer>
-					<v-btn v-show="!mustConnect" color="blue darken-1" flat @click="hideConnectDialog">{{ $t('generic.cancel') }}</v-btn>
-					<v-btn color="blue darken-1" flat type="submit">{{ $t('dialog.connect.connect') }}</v-btn>
+					<v-btn v-show="!mustConnect" color="blue darken-1" text @click="hideConnectDialog">{{ $t('generic.cancel') }}</v-btn>
+					<v-btn color="blue darken-1" text type="submit">{{ $t('dialog.connect.connect') }}</v-btn>
 				</v-card-actions>
 			</v-form>
 		</v-card>
@@ -36,36 +37,38 @@ export default {
 	data() {
 		return {
 			shown: false,
-			hostname: '',
+			hostname: location.host,
 			password: ''
 		}
 	},
 	methods: {
 		...mapActions(['connect']),
-		...mapMutations(['hideConnectDialog']),
+		...mapMutations(['showConnectDialog', 'hideConnectDialog']),
 		async submit() {
 			if (this.shown && this.$refs.form.validate()) {
 				this.hideConnectDialog();
-
-				await this.connect({ hostname: this.hostname, password: this.password });
-				this.password = '';
+				try {
+					await this.connect({ hostname: this.hostname, password: this.password });
+					this.password = '';
+				} catch (e) {
+					console.warn(e);
+					this.showConnectDialog();
+				}
 			}
 		}
 	},
 	mounted() {
-		this.hostname = this.lastHostname;
+		if (this.isLocal) {
+			this.hostname = this.lastHostname;
+		}
 		this.shown = this.connectDialogShown;
 	},
 	watch: {
 		connectDialogShown(to) { this.shown = to; },
-		shown(to) {
-			if (to) {
-				// Fill in the last hostname
-				this.hostname = this.lastHostname;
-
-				// Auto-focus input
-				const input = this.passwordRequired ? this.$refs.password : this.$refs.hostname;
-				setTimeout(input.focus, 100);
+		lastHostname(to) {
+			if (this.isLocal) {
+				// Update the hostname
+				this.hostname = to;
 			}
 		}
 	}

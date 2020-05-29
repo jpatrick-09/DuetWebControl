@@ -15,26 +15,26 @@ Vue.use(VueRouter)
 export const Routing = [
 	// Control
 	{
-		icon: 'tune',
+		icon: 'mdi-tune',
 		caption: 'menu.control.caption',
 		pages: [
 			// Dashboard
 			{
-				icon: 'dashboard',
+				icon: 'mdi-view-dashboard',
 				caption: 'menu.control.dashboard',
 				path: '/',
 				component: Control.Dashboard
 			},
 			// Console
 			{
-				icon: 'code',
+				icon: 'mdi-code-tags',
 				caption: 'menu.control.console',
 				path: '/Console',
 				component: Control.Console
 			},
 			// Height Map
 			{
-				icon: 'grid_on',
+				icon: 'mdi-grid',
 				caption: 'menu.control.heightmap',
 				path: '/Heightmap',
 				component: Control.Heightmap
@@ -43,19 +43,19 @@ export const Routing = [
 	},
 	// Job
 	{
-		icon: 'print',
+		icon: 'mdi-printer',
 		caption: 'menu.job.caption',
 		pages: [
 			// Status
 			{
-				icon: 'info',
+				icon: 'mdi-information',
 				caption: 'menu.job.status',
 				path: '/Job/Status',
 				component: Job.Status
 			},
 			// Webcam
 			{
-				icon: 'photo_camera',
+				icon: 'mdi-webcam',
 				caption: 'menu.job.webcam',
 				path: '/Job/Webcam',
 				component: Job.Webcam,
@@ -63,7 +63,7 @@ export const Routing = [
 			}
 			// Visualiser (coming soon)
 			/* {
-				icon: 'theaters',
+				icon: 'mdi-3d-rotation',
 				caption: 'menu.job.visualiser',
 				path: '/Job/Visualiser',
 				component: Job.Visualiser
@@ -72,41 +72,41 @@ export const Routing = [
 	},
 	// Files
 	{
-		icon: 'sd_storage',
+		icon: 'mdi-sd',
 		caption: 'menu.files.caption',
 		pages: [
 			// Jobs
 			{
-				icon: 'play_arrow',
+				icon: 'mdi-play',
 				caption: 'menu.files.jobs',
 				path: '/Files/Jobs',
 				component: Files.Jobs
 			},
 			// Macros
 			{
-				icon: 'polymer',
+				icon: 'mdi-polymer',
 				caption: 'menu.files.macros',
 				path: '/Files/Macros',
 				component: Files.Macros
 			},
 			// Filaments
 			{
-				icon: 'radio_button_checked',
+				icon: 'mdi-radiobox-marked',
 				caption: 'menu.files.filaments',
 				path: '/Files/Filaments',
 				component: Files.Filaments
 			},
 			// Display
 			{
-				icon: 'format_list_numbered',
-				caption: 'menu.files.display',
+				icon: 'mdi-format-list-numbered',
+				caption: 'menu.files.menu',
 				path: '/Files/Display',
 				component: Files.Display,
 				condition: 'display'
 			},
 			// System
 			{
-				icon: 'settings',
+				icon: 'mdi-cog',
 				caption: 'menu.files.system',
 				path: '/Files/System',
 				component: Files.System
@@ -115,16 +115,30 @@ export const Routing = [
 	},
 	// Settings
 	{
-		icon: 'settings',
+		icon: 'mdi-wrench',
 		caption: 'menu.settings.caption',
 		pages: [
-			// Interface
+			// General
 			{
-				icon: 'settings_applications',
-				caption: 'menu.settings.interface',
-				path: '/Settings/Interface',
-				component: Settings.Interface
+				icon: 'mdi-tune',
+				caption: 'menu.settings.general',
+				path: '/Settings/General',
+				component: Settings.General
+			},
+			// Machine
+			{
+				icon: 'mdi-cogs',
+				caption: 'menu.settings.machine',
+				path: '/Settings/Machine',
+				component: Settings.Machine
 			}
+			// Update (coming soon)
+			/* {
+				icon: 'mdi-update',
+				caption: 'menu.settings.update',
+				path: '/Settings/Update',
+				component: Settings.Update
+			} */
 		]
 	}
 ]

@@ -1,15 +1,19 @@
 'use strict'
 
+import i18n from '../i18n'
+
 import { localStorageSupported, getLocalSetting, setLocalSetting, removeLocalSetting } from '../utils/localStorage.js'
-import merge from '../utils/merge.js'
+import patch from '../utils/patch.js'
 import Path from '../utils/path.js'
 
 export default {
 	namespaced: true,
 	state: {
+		language: 'en',
 		lastHostname: location.host,
 		darkTheme: false,
 		useBinaryPrefix: true,
+		disableAutoComplete: false,
 		settingsStorageLocal: false,
 		settingsSaveDelay: 2000,						// ms - how long to wait before settings updates are saved
 		cacheStorageLocal: localStorageSupported,
@@ -21,6 +25,7 @@ export default {
 		webcam: {
 			url: '',
 			updateInterval: 5000,						// ms
+			liveUrl: '',
 			useFix: false,								// do not append extra HTTP qualifier when reloading images
 			embedded: false,							// use iframe to embed webcam stream
 			rotation: 0,
@@ -28,13 +33,23 @@ export default {
 		}
 	},
 	mutations: {
-		load: (state, payload) => merge(state, payload, true),
+		load(state, payload) {
+			if (payload.language && i18n.locale != payload.language) {
+				i18n.locale = payload.language;
+			}
+			patch(state, payload, true);
+		},
 		setLastHostname(state, hostname) {
 			state.lastHostname = hostname;
 			setLocalSetting('lastHostname', hostname);
 		},
 
-		update: (state, payload) => merge(state, payload, true)
+		update(state, payload) {
+			if (payload.language) {
+				i18n.locale = payload.language;
+			}
+			patch(state, payload, true);
+		}
 	},
 	actions: {
 		async load({ rootState, rootGetters, commit, dispatch }) {

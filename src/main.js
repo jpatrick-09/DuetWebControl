@@ -1,9 +1,8 @@
 'use strict'
 
 import Vue from 'vue'
-import Vuetify from 'vuetify'
-import 'vuetify/dist/vuetify.min.css'
-import 'material-design-icons-iconfont/dist/material-design-icons.css'
+import Vuetify from 'vuetify/lib'
+import '@mdi/font/css/materialdesignicons.css'
 import './components'
 
 import App from './App.vue'
@@ -31,5 +30,11 @@ new Vue({
 	i18n,
 	render: h => h(App),
 	router,
-	store
+	store,
+	vuetify: new Vuetify({
+		icons: {
+			iconfont: 'mdiSvg',
+		},
+		lang: { t: (key, ...params) => i18n.t(key, params) }
+	})
 })

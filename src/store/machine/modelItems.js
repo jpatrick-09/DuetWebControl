@@ -1,211 +1,514 @@
 'use strict'
 
-import merge from '../../utils/merge.js'
+import Vue from 'vue'
 
-class Axis {
-	constructor(initData) { merge(this, initData, true); }
-	letter = undefined				// must be upper-case
-	drives = []
-	homed = undefined
-	machinePosition = undefined
-	min = undefined
-	max = undefined
-	visible = undefined
+import {
+	AnalogSensorType,
+	BoardState,
+	Compatibility,
+	DistanceUnit,
+	EndstopType,
+	FilamentMonitorType,
+	HeaterMonitorAction, HeaterMonitorCondition,
+	HttpEndpointType,
+	InputChannelState,
+	KinematicsName,
+	MessageBoxMode,
+	NetworkInterfaceType,
+	ProbeType,
+	ToolState
+} from './modelEnums.js'
+import { quickPatch } from '../../utils/patch.js'
+
+export class AnalogSensor {
+	lastReading = null
+	name = ''
+	type = AnalogSensorType.unknown
 }
 
-class BedOrChamber {
-	constructor(initData) { merge(this, initData, true); }
-	number = undefined
-	active = undefined
-	standby = undefined
-	name = undefined
-	heaters = []
-}
-
-class Drive {
-	constructor(initData) { merge(this, initData, true); }
-	position = undefined
-	babystepping = {
-		value: undefined,
-		interpolated: undefined
+export class Axis {
+	constructor(initData) { quickPatch(this, initData); }
+	acceleration = 500
+	babystep = 0
+	current = 0
+	drivers = []
+	homed = false
+	jerk = 15
+	letter = '\0'
+	machinePosition = null
+	max = 200
+	maxProbed = false
+	microstepping = {
+		interpolated: false,
+		value: 16
 	}
-	current = undefined
-	acceleration = undefined
-	minSpeed = undefined
-	maxSpeed = undefined
+	min = 0
+	minProbed = false
+	speed = 100
+	stepsPerMm = 80
+	userPosition = null
+	visible = true
+	workplaceOffsets = []
 }
 
-class Endstop {
-	constructor(initData) { merge(this, initData, true); }
-	triggered = undefined
-	position = undefined			// 0: none, 1: low end 2: high end
-	type = undefined				// 0: active low, 1: active high, 3: zprobe, 4: motor load detection
+export class BeepRequest {
+	constructor(initData) { quickPatch(this, initData); }
+	duration = 0
+	frequency = 0
 }
 
-class ExpansionBoard {
-	constructor(initData) { merge(this, initData, true); }
-	name = undefined
-	revision = undefined
-	firmware = {
-		name: undefined,
-		version: undefined,
-		date: undefined
+export class Board {
+	constructor(initData) { quickPatch(this, initData); }
+	bootloaderFileName = null
+	canAddress = null			// *** requires CAN support (TBD)
+	firmwareDate = ''
+	firmwareFileName = null
+	firmwareName = ''
+	firmwareVersion = ''
+	iapFileNameSBC = null		// *** requires SBC support
+	iapFileNameSD = null		// *** requires SD support
+	maxHeaters = 0
+	maxMotors = 0
+	mcuTemp = {
+		current: -273.1,
+		min: -273.1,
+		max: -273.1
+	}
+	name = ''
+	shortName = ''
+	state = BoardState.unknown
+	supports12864 = false
+	v12 = {
+		current: 0,
+		min: 0,
+		max: 0
 	}
 	vIn = {
-		current: undefined,
-		min: undefined,
-		max: undefined
+		current: 0,
+		min: 0,
+		max: 0
 	}
-	mcuTemp = undefined
-	maxHeaters = undefined
-	maxMotors = undefined
 }
 
-class ExtraHeater {
-	constructor(initData) { merge(this, initData, true); }
-	current = undefined
-	name = undefined
-	state = undefined
-	sensor = undefined
+export class Build {
+	currentObject = -1
+	m486Names = false
+	m486Numbers = false
+	objects = []
 }
 
-class Extruder {
-	constructor(initData) { merge(this, initData, true); }
+export class BuildObject {
+	constructor(initData) { quickPatch(this, initData); }
+	cancelled = false
+	name = null
+	x = []
+	y = []
+}
+
+export class Endstop {
+	constructor(initData) { quickPatch(this, initData); }
+	triggered = false
+	type = EndstopType.unknown
+	probeNumber = null			// *** missing in RRF
+}
+
+export class Extruder {
+	constructor(initData) { quickPatch(this, initData); }
+	acceleration = 500
+	current = 0
+	driver = null
 	factor = 1.0
+	filament = ''
+	jerk = 15
+	microstepping = {
+		interpolated: false,
+		value: 16
+	}
 	nonlinear = {
-		a: undefined,
-		b: undefined,
-		upperLimit: undefined,
-		temperature: undefined
+		a: 0,
+		b: 0,
+		upperLimit: 0.2
 	}
+	position = 0
+	pressureAdvance = 0
+	rawPosition = 0
+	speed = 100
+	stepsPerMm = 420
 }
 
-class Fan {
-	constructor(initData) { merge(this, initData, true); }
-	value = undefined
-	name = undefined
-	rpm = undefined
-	inverted = undefined
-	frequency = undefined
-	minimum = undefined
-	maximum = undefined
-	blip = undefined
+export class Fan {
+	constructor(initData) { quickPatch(this, initData); }
+	actualValue = -1
+	blip = 0.1
+	frequency = 250
+	max = 1
+	min = 0.1
+	name = ''
+	requestedValue = 0
+	rpm = -1
 	thermostatic = {
-		control: false,
 		heaters: [],
-		temperature: undefined
+		highTemperature: null,
+		lowTemperature: null
 	}
-	pin = undefined
 }
 
-class Heater {
-	constructor(initData) { merge(this, initData, true); }
-	current = undefined
-	name = undefined
-	state = undefined				// see RRF state enum
+export class FilamentMonitor {
+	constructor(initData) { quickPatch(this, initData); }
+	enabled = false
+	filamentPresent = null
+	type = FilamentMonitorType.unknown
+}
+
+export class LaserFilamentMonitor extends FilamentMonitor {
+	constructor(initData = {}) {
+		initData.type = FilamentMonitorType.laser;
+		super(initData);
+	}
+
+	calibrated = {
+		percentMax: 0,
+		percentMin: 0,
+		sensivity: 0,
+		totalDistance: 0
+	}
+	configured = {
+		percentMax: 160,
+		percentMin: 60,
+		sampleDistance: 3.0
+	}
+}
+
+export class PulsedFilamentMonitor extends FilamentMonitor {
+	constructor(initData = {}) {
+		initData.type = FilamentMonitorType.pulsed;
+		super(initData);
+	}
+
+	calibrated = {
+		mmPerPulse: 0,
+		percentMax: 0,
+		percentMin: 0,
+		totalDistance: 0
+	}
+	configured = {
+		mmPerPulse: 1,
+		percentMax: 160,
+		percentMin: 60,
+		sampleDistance: 5
+	}
+}
+
+export class RotatingMagnetFilamentMonitor extends FilamentMonitor {
+	constructor(initData = {}) {
+		initData.type = FilamentMonitorType.rotatingMagnet;
+		super(initData);
+	}
+
+	calibrated = {
+		mmPerRev: 0,
+		percentMax: 0,
+		percentMin: 0,
+		totalDistance: 0
+	}
+	configured = {
+		mmPerRev: 28.8,
+		percentMax: 160,
+		percentMin: 60,
+		sampleDistance: 3
+	}
+}
+
+export class GpInputPort {
+	constructor(initData) { quickPatch(this, initData); }
+	value = 0
+}
+
+export class GpOutputPort {
+	constructor(initData) { quickPatch(this, initData); }
+	pwm = 0
+}
+
+export class Heater {
+	constructor(initData) { quickPatch(this, initData); }
+	active = 0
+	current = -273.15
+	max = 285
+	min = -10
 	model = {
-		gain: undefined,
-		timeConst: undefined,
-		deadTime: undefined,
-		maxPwm: undefined
+		deadTime: 5.5,
+		enabled: false,
+		gain: 340,
+		inverted: false,
+		maxPwm: 1,
+		pid: {
+			overridden: false,
+			d: 0.0,
+			i: 0.0,
+			p: 0.0,
+			used: true
+		},
+		standardVoltage: 0,
+		timeConstant: 140
 	}
-	max = undefined
-	sensor = undefined
+	monitors = []
+	name = null
+	sensor = -1
+	standby = 0
+	state = null
 }
 
-class Layer {
-	constructor(initData) { merge(this, initData, true); }
-	duration = undefined
-	height = undefined
+export class HeaterMonitor {
+	action = HeaterMonitorAction.generateFault
+	condition = HeaterMonitorCondition.disabled
+	limit = null
+}
+
+export class HttpEndpoint {
+	constructor(initData) { quickPatch(this, initData); }
+	endpointType = HttpEndpointType.get
+	namespace = ''
+	path = ''
+	unixSocket = ''
+}
+
+export class InputChannel {
+	constructor(initData) { quickPatch(this, initData); }
+	axesRelative = false
+	compatibility = Compatibility.repRapFirmware
+	distanceUnit = DistanceUnit.mm
+	drivesRelative = false
+	feedRate = 50
+	inMacro = false
+	lineNumber = 0
+	name = null
+	stackDepth = 0
+	state = InputChannelState.idle
+	volumetric = false
+}
+
+export class Kinematics {
+	constructor(initData) { quickPatch(this, initData); }
+	name = KinematicsName.unknown
+}
+
+export class ZLeadscrewKinematics extends Kinematics {
+	constructor(initData) { super(initData); }
+	tiltCorrection = {
+		correctionFactor: 0,
+		lastCorrections: [],
+		maxCorrection: 0,
+		screwPitch: 0,
+		screwX: [],
+		screwY: []
+	}
+}
+
+export class CoreKinematics extends ZLeadscrewKinematics {
+	constructor(initData) { super(initData); }
+	forwardMatrix = [
+		[1, 0, 0],
+		[0, 1, 0],
+		[0, 0, 1]
+	]
+	inverseMatrix = [
+		[1, 0, 0],
+		[0, 1, 0],
+		[0, 0, 1]
+	]
+}
+
+export class DeltaKinematics extends Kinematics {
+	constructor(initData) { super(initData); }
+	deltaRadius = 105.6
+	homedHeight = 240
+	printRadius = 80
+	towers = [
+		new DeltaTower(),
+		new DeltaTower(),
+		new DeltaTower()
+	]
+	xTilt = 0
+	yTilt = 0
+}
+
+export class DeltaTower {
+	constructor(initData) { quickPatch(this, initData); }
+	angleCorrection = 0
+	diagonal = 0
+	endstopAdjustment = 0
+	xPos = 0
+	yPos = 0
+}
+
+export class HangprinterKinematics extends Kinematics {
+	constructor(initData) { super(initData); }
+	anchorA = [0, -2000, -100]
+	anchorB = [2000, 1000, -100]
+	anchorC = [-2000, 1000, -100]
+	anchorDz = 3000
+	printRadius = 1500
+}
+
+export class ScaraKinematics extends ZLeadscrewKinematics {
+	constructor(initData) { super(initData); }
+}
+
+export class Layer {
+	constructor(initData) { quickPatch(this, initData); }
+	duration = 0
 	filament = []
-	fractionPrinted = undefined
+	fractionPrinted = 0
+	height = 0
 }
 
-class NetworkInterface {
-	constructor(initData) { merge(this, initData, true); }
-	type = undefined				// one of ['wifi', 'lan']
-	firmwareVersion = undefined
-	speed = undefined				// 0 if no link
-	signal = undefined				// only WiFi
-	configuredIP = undefined
-	actualIP = undefined
-	subnet = undefined
-	gateway = undefined
-	numReconnects = undefined
-	activeProtocols = []			// one or more of ['http' 'ftp' 'telnet']
+export class MeshDeviation {
+	deviation = 0
+	mean = 0
 }
 
-class Probe {
-	constructor(initData) { merge(this, initData, true); }
-	type = undefined
-	value = undefined
-	secondaryValues = []
-	threshold = undefined
-	speed = undefined
-	diveHeight = undefined
-	triggerHeight = undefined
-	inverted = undefined
-	recoveryTime = undefined
-	travelSpeed = undefined
-	maxProbeCount = undefined
-	tolerance = undefined
-	disablesBed = undefined
+export class MessageBox {
+	axisControls = 0
+	mode = MessageBoxMode.okOnly
+	message = ''
+	seq = -1
+	title = ''
+	timeout = 0
 }
 
-class Spindle {
-	constructor(initData) { merge(this, initData, true); }
-	active = undefined				// RPM
-	current = undefined				// RPM
+export class NetworkInterface {
+	constructor(initData) { quickPatch(this, initData); }
+	actualIP = null
+	firmwareVersion = null
+	gateway = null
+	mac = null
+	subnet = null
+	type = NetworkInterfaceType.wifi
+
+	// *** missing in RRF:
+	activeProtocols = []		// one or more of ['http', 'ftp', 'telnet']
+	configuredIP = null
+	numReconnects = null
+	signal = null				// only WiFi (dBm)
+	speed = null				// null if unknown and 0 if no link
 }
 
-class Storage {
-	constructor(initData) { merge(this, initData, true); }
-	mounted = undefined
-	speed = undefined				// in Bytes/s
-	capacity = undefined			// in Bytes
-	free = undefined				// in Bytes
-	openFiles = undefined
+export class ParsedFileInfo {
+	constructor(initData = {}) {
+		quickPatch(this, initData);
+		if (!this.numLayers && initData.height && initData.firstLayerHeight && initData.layerHeight) {
+			// approximate the number of layers if it isn't given
+			this.numLayers = Math.round((initData.height - initData.firstLayerHeight) / initData.layerHeight) + 1
+		}
+	}
+	filament = []
+	fileName = null
+	firstLayerHeight = 0
+	generatedBy = null
+	height = 0
+	lastModified = null
+	layerHeight = 0
+	numLayers = 0
+	printTime = null
+	simulatedTime = null
+	size = 0
 }
 
-class Tool {
-	constructor(initData) { merge(this, initData, true); }
-	number = undefined
+export class Probe {
+	constructor(initData) { quickPatch(this, initData); }
+	calibrationTemperature = 25
+	deployedByUser = false
+	disablesHeaters = false
+	diveHeight = 5
+	maxProbeCount = 1
+	offsets = [0, 0]
+	recoveryTime = 0
+	speed = 2
+	temperatureCoefficient = 0
+	threshold = 500
+	tolerance = 0.03
+	travelSpeed = 100
+	triggerHeight = 0.7
+	type = ProbeType.none
+	value = [1000]
+}
+
+export class RestorePoint {
+	constructor(initData) { quickPatch(this, initData); }
+	coords = []
+	extruderPos = 0
+	feedRate = 50
+	ioBits = 0
+	laserPwm = null
+	spindleSpeeds = []
+	toolNumber = -1
+}
+
+export class Spindle {
+	constructor(initData) { quickPatch(this, initData); }
+	active = 0					// RPM
+	current = 0					// RPM
+	frequency = 0				// Hz
+	min = 0						// RPM	*** missing in RRF but reserved
+	max = 10000					// RPM
+	tool = -1
+}
+
+export class Tool {
+	constructor(initData) { quickPatch(this, initData); }
 	active = []
-	standby = []
-	name = undefined
-	filament = undefined
-	fans = []
-	heaters = []
+	axes = []					// may hold sub-arrays of drives per axis
 	extruders = []
+	fans = []
+	filamentExtruder = -1
+	heaters = []
 	mix = []
-	spindle = undefined
-	axes = []
-	offsets = []						// offsets in the same order as the axes
+	name = ''
+	number = 0
+	offsets = []				// offsets in the same order as the axes
+	offsetsProbed = 0			// bitmap of the probed axes
+	retraction = {
+		extraRestart: 0,
+		length: 0,
+		speed: 0,
+		unretractSpeed: 0,
+		zHop: 0
+	}
+	standby = []
+	state = ToolState.off
 }
 
-export {
-	Axis,
-	BedOrChamber,
-	Drive,
-	Endstop,
-	ExpansionBoard,
-	ExtraHeater,
-	Extruder,
-	Fan,
-	Heater,
-	Layer,
-	NetworkInterface,
-	Probe,
-	Spindle,
-	Storage,
-	Tool
+export class UserSession {		// *** missing in RRF
+	constructor(initData) { quickPatch(this, initData); }
+	id = 0
+	accessLevel = 'readOnly'
+	origin = null
+	originId = -1
+	sessionType = 'local'
+}
+
+export class UserVariable {		// *** missing in RRF but reserved
+	constructor(initData) { quickPatch(this, initData); }
+	name = ''
+	value = null
+}
+
+export class Volume {
+	constructor(initData) { quickPatch(this, initData); }
+	capacity = null				// in Bytes
+	freeSpace = null			// in Bytes
+	mounted = false
+	name = null					// *** missing in RRF but reserved
+	openFiles = null
+	path = null
+	speed = null				// in Bytes/s
 }
 
 function fixObject(item, preset) {
 	let fixed = false;
 	for (let key in preset) {
-		if (!item.hasOwnProperty(key)) {
-			item[key] = preset[key];
+		if (item[key] === undefined) {
+			Vue.set(item, key, preset[key]);
 			fixed = true;
 		} else if (!(item[key] instanceof Array) && item[key] instanceof Object) {
 			fixed |= fixObject(item[key], preset[key]);
@@ -216,51 +519,53 @@ function fixObject(item, preset) {
 
 function fixItems(items, ClassType) {
 	let preset = new ClassType();
-	items.forEach(function(item) {
-		if (item !== null) {
-			for (let key in preset) {
-				if (!item.hasOwnProperty(key)) {
-					item[key] = preset[key];
-					if (preset[key] instanceof Object) {
-						preset = new ClassType();
-					}
-				} else if (preset[key] instanceof Object) {
-					if (fixObject(item[key], preset[key])) {
-						preset = new ClassType();
+	if (items !== null && items !== undefined) {
+		items.forEach(function(item) {
+			if (item !== null) {
+				for (let key in preset) {
+					if (item[key] === undefined) {
+						Vue.set(item, key, preset[key]);
+						if (preset[key] instanceof Object) {
+							preset = new ClassType();
+						}
+					} else if (preset[key] instanceof Object) {
+						if (fixObject(item[key], preset[key])) {
+							preset = new ClassType();
+						}
 					}
 				}
 			}
-		}
-	});
+		});
+	}
 }
 
 // TODO: Eventually this could be combined with the 'merge' function
 // But getting everything the way it's supposed to work took longer than expected anyway...
 export function fixMachineItems(state, mergeData) {
-	if (mergeData.cnc && mergeData.cnc.spindles) {
-		fixItems(state.cnc.spindles, Spindle);
-	}
-
-	if (mergeData.electronics && mergeData.electronics.expansionBoards) {
-		fixItems(state.electronics.expansionBoards, ExpansionBoard);
+	if (mergeData.boards) {
+		fixItems(state.boards, Board)
 	}
 
 	if (mergeData.fans) {
-		fixItems(state.fans, Fan);
+		fixItems(state.fans, Fan)
 	}
 
-	if (mergeData.heat) {
-		if (mergeData.heat.beds) {
-			fixItems(state.heat.beds, BedOrChamber);
-		}
-		if (mergeData.heat.chambers) {
-			fixItems(state.heat.chambers, BedOrChamber);
-		}
-		if (mergeData.heat.extra) {
-			fixItems(state.heat.extra, ExtraHeater);
-		}
-		if (mergeData.heat.heaters) {
-			fixItems(state.heat.heaters, Heater);
+	if (mergeData.heat && mergeData.heat.heaters) {
+		fixItems(state.heat.heaters, Heater);
+	}
+
+	if (mergeData.httpEndpoints) {
+		fixItems(state.httpEndpoints, HttpEndpoint);
+	}
+
+	if (mergeData.inputs) {
+		fixItems(state.inputs, InputChannel);
+	}
+
+	if (mergeData.job && mergeData.job.build) {
+		fixObject(state.job.build, new Build());
+		if (mergeData.job.build && mergeData.job.build.objects) {
+			fixItems(state.job.build.objects, BuildObject);
 		}
 	}
 
@@ -270,11 +575,14 @@ export function fixMachineItems(state, mergeData) {
 		if (mergeData.move.axes) {
 			fixItems(state.move.axes, Axis);
 		}
-		if (mergeData.move.drives) {
-			fixItems(state.move.drives, Drive);
+		if (mergeData.move.compensation && mergeData.move.compensation.meshDeviation) {
+			fixObject(state.move.compensation.meshDeviation, new MeshDeviation());
 		}
 		if (mergeData.move.extruders) {
 			fixItems(state.move.extruders, Extruder);
+		}
+		if (mergeData.move.kinematics && mergeData.move.kinematics.towers) {
+			fixItems(state.move.kinematics.towers, DeltaTower);
 		}
 	}
 
@@ -283,19 +591,66 @@ export function fixMachineItems(state, mergeData) {
 	}
 
 	if (mergeData.sensors) {
+		if (mergeData.sensors.analog) {
+			fixItems(state.sensors.analog, AnalogSensor);
+		}
 		if (mergeData.sensors.endstops) {
 			fixItems(state.sensors.endstops, Endstop);
+		}
+		if (mergeData.sensors.filamentMonitors) {
+			state.sensors.filamentMonitors.forEach(function(filamentSensor) {
+				if (filamentSensor) {
+					switch (filamentSensor.type) {
+						case FilamentMonitorType.laser:
+							fixObject(filamentSensor, new LaserFilamentMonitor());
+							break;
+						case FilamentMonitorType.pulsed:
+							fixObject(filamentSensor, new PulsedFilamentMonitor());
+							break;
+						case FilamentMonitorType.rotatingMagnet:
+							fixObject(filamentSensor, new RotatingMagnetFilamentMonitor());
+							break;
+						default:
+							fixObject(filamentSensor, new FilamentMonitor());
+							break;
+					}
+				}
+			});
+		}
+		if (mergeData.sensors.gpIn) {
+			fixItems(state.sensors.gpIn, GpInputPort);
 		}
 		if (mergeData.sensors.probes) {
 			fixItems(state.sensors.probes, Probe);
 		}
 	}
 
-	if (mergeData.storages) {
-		fixItems(state.storages, Storage);
+	if (mergeData.spindles) {
+		fixItems(state.spindles, Spindle);
+	}
+
+	if (mergeData.state) {
+		if (mergeData.state.gpOut) {
+			fixItems(state.state.gpOut, GpOutputPort);
+		}
+		if (mergeData.state.restorePoints) {
+			fixItems(state.state.restorePoints, RestorePoint);
+		}
 	}
 
 	if (mergeData.tools) {
 		fixItems(state.tools, Tool);
+	}
+
+	if (mergeData.userSessions) {
+		fixItems(state.userSessions, UserSession);
+	}
+
+	if (mergeData.userVariables) {
+		fixItems(state.userVariables, UserVariable);
+	}
+
+	if (mergeData.volumes) {
+		fixItems(state.volumes, Volume);
 	}
 }

@@ -1,23 +1,23 @@
 <template>
 	<v-card>
-		<v-card-title>
-			<v-icon small class="mr-1">build</v-icon> Job Control
+		<v-card-title class="pb-1">
+			<v-icon small class="mr-1">mdi-wrench</v-icon> {{ $t('panel.jobControl.caption') }}
 		</v-card-title>
 
 		<v-card-text class="pt-0">
-			<code-btn color="warning" block :disabled="uiFrozen || !state.isPrinting" :code="this.isPaused ? 'M24' : 'M25'" tabindex="0">
-				<v-icon class="mr-1">{{ isPaused ? "play_arrow" : "pause" }}</v-icon> {{ pauseResumeText }}
+			<code-btn color="warning" block :disabled="uiFrozen || !isPrinting" :code="isPaused ? 'M24' : 'M25'" tabindex="0">
+				<v-icon class="mr-1">{{ isPaused ? 'mdi-play' : 'mdi-pause' }}</v-icon> {{ pauseResumeText }}
 			</code-btn>
 
 			<code-btn v-if="isPaused" color="error" block code="M0 H1">
-				<v-icon class="mr-1">stop</v-icon> {{ cancelText }}
+				<v-icon class="mr-1">mdi-stop</v-icon> {{ cancelText }}
 			</code-btn>
 
-			<code-btn v-if="!state.isPrinting && processAnotherCode" color="success" block :code="processAnotherCode">
-				<v-icon class="mr-1">refresh</v-icon> {{ processAnotherText }}
+			<code-btn v-if="!isPrinting && processAnotherCode" color="success" block :code="processAnotherCode">
+				<v-icon class="mr-1">mdi-restart</v-icon> {{ processAnotherText }}
 			</code-btn>
 
-			<v-switch label="Enable Auto-Sleep" v-model="autoSleepActive" :disabled="uiFrozen" hide-details></v-switch>
+			<v-switch :label="$t('panel.jobControl.autoSleep')" v-model="autoSleepActive" :disabled="uiFrozen" hide-details></v-switch>
 		</v-card-text>
 	</v-card>
 </template>
@@ -27,51 +27,59 @@
 
 import { mapState, mapGetters, mapMutations } from 'vuex'
 
+import { MachineMode, StatusType, isPaused, isPrinting } from '../../store/machine/modelEnums.js'
+
 export default {
 	computed: {
-		...mapGetters(['uiFrozen']),
 		...mapState('machine', ['autoSleep']),
-		...mapState('machine/model', ['job', 'state']),
-		...mapGetters('machine/model', ['isPaused']),
+		...mapState('machine/model', {
+			lastFileName: state => state.job.lastFileName,
+			lastFileSimulated: state => state.job.lastFileSimulated,
+			machineMode: state => state.state.machineMode,
+			status: state => state.state.status
+		}),
+		...mapGetters(['uiFrozen']),
 		autoSleepActive: {
 			get() { return this.autoSleep; },
 			set(value) { this.setAutoSleep(value) }
 		},
+		isPaused() { return isPaused(this.status); },
+		isPrinting() { return isPrinting(this.status); },
 		pauseResumeText() {
-			if (this.state.isSimulating) {
-				return this.isPaused ? 'Resume Simulation' : 'Pause Simulation';
+			if (this.status === StatusType.simulating) {
+				return this.$t(this.isPaused ? 'panel.jobControl.resumeSimulation' : 'panel.jobControl.pauseSimulation');
 			}
-			if (this.state.mode === 'FFF') {
-				return this.isPaused ? 'Resume Print' : 'Pause Print';
+			if (this.machineMode === MachineMode.fff) {
+				return this.$t(this.isPaused ? 'panel.jobControl.resumePrint' : 'panel.jobControl.pausePrint');
 			}
-			return this.isPaused ? 'Resume Job' : 'Pause Job';
+			return this.$t(this.isPaused ? 'panel.jobControl.resumeJob' : 'panel.jobControl.pauseJob');
 		},
 		cancelText() {
-			if (this.state.isSimulating) {
-				return 'Cancel Simulation';
+			if (this.isSimulating) {
+				return this.$t('panel.jobControl.cancelSimulation');
 			}
-			if (this.state.mode === 'FFF') {
-				return 'Cancel Print';
+			if (this.machineMode === MachineMode.fff) {
+				return this.$t('panel.jobControl.cancelPrint');
 			}
-			return 'Cancel Job';
+			return this.$t('panel.jobControl.cancelJob');
 		},
 		processAnotherCode() {
-			if (this.job.lastFileName) {
-				if (this.job.lastFileSimulated) {
-					return `M37 P"${this.job.lastFileName}"`;
+			if (this.lastFileName) {
+				if (this.lastFileSimulated) {
+					return `M37 P"${this.lastFileName}"`;
 				}
-				return `M32 "${this.job.lastFileName}"`;
+				return `M32 "${this.lastFileName}"`;
 			}
-			return undefined;
+			return '';
 		},
 		processAnotherText() {
-			if (this.job.lastFileSimulated) {
-				return 'Simulate Again';
+			if (this.lastFileSimulated) {
+				return this.$t('panel.jobControl.repeatSimulation');
 			}
-			if (this.state.mode === 'FFF') {
-				return 'Print Again';
+			if (this.machineMode === MachineMode.fff) {
+				return this.$t('panel.jobControl.repeatPrint');
 			}
-			return 'Start Again';
+			return this.$t('panel.jobControl.repeatJob');
 		}
 	},
 	methods: mapMutations('machine', ['setAutoSleep'])

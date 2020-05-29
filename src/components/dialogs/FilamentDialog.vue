@@ -1,8 +1,8 @@
 <template>
-	<v-dialog v-model="shown" persistent width="360">
+	<v-dialog v-model="shown" persistent width="360" @keydown.escape="hide">
 		<v-card>
-			<v-card-title>
-				<span class="headline">{{ $t((tool && tool.filament) ? 'dialog.filament.titleChange' : 'dialog.filament.titleLoad') }}</span>
+			<v-card-title class="headline">
+				{{ $t(tool ? (tool.filament ? 'dialog.filament.titleChange' : 'dialog.filament.titleLoad') : 'generic.noValue') }}
 			</v-card-title>
 
 			<v-card-text>
@@ -10,15 +10,15 @@
 
 				<v-progress-linear indeterminate v-if="loading"></v-progress-linear>
 				<v-list v-if="!loading">
-					<v-list-tile v-for="filament in filaments" :key="filament" @click="filamentClick(filament)">
-						<v-icon class="mr-1">radio_button_checked</v-icon> {{ filament }}
-					</v-list-tile>
+					<v-list-item v-for="filament in filaments" :key="filament" @click="filamentClick(filament)">
+						<v-icon class="mr-1">mdi-radiobox-marked</v-icon> {{ filament }}
+					</v-list-item>
 				</v-list>
 			</v-card-text>
 
 			<v-card-actions>
 				<v-spacer></v-spacer>
-				<v-btn color="blue darken-1" flat @click="hide">{{ $t('generic.cancel') }}</v-btn>
+				<v-btn color="blue darken-1" text @click="hide">{{ $t('generic.cancel') }}</v-btn>
 				<v-spacer></v-spacer>
 			</v-card-actions>
 		</v-card>
@@ -31,7 +31,6 @@
 import { mapState, mapGetters, mapActions } from 'vuex'
 
 import { DisconnectedError } from '../../utils/errors.js'
-import Path from '../../utils/path.js'
 
 export default {
 	props: {
@@ -42,7 +41,10 @@ export default {
 		tool: Object
 	},
 	computed: {
-		...mapState('machine/model', ['tools']),
+		...mapState('machine/model', {
+			extruders: state => state.move.extruders,
+			filamentsDirectory: state => state.directories.filaments
+		}),
 		...mapGetters('machine/model', ['currentTool'])
 	},
 	data() {
@@ -60,10 +62,10 @@ export default {
 
 			this.loading = true
 			try {
-				const response = await this.getFileList(Path.filaments);
+				const response = await this.getFileList(this.filamentsDirectory);
 				this.filaments = response.filter(item => item.isDirectory).map(item => item.name).filter(function(filament) {
 					// Exclude filaments that are already loaded (RRF does not allow loading the same filament into multiple tools)
-					return !this.tools.some(tool => tool.filament === filament);
+					return !this.extruders.some(extruder => extruder.filament === filament);
 				}, this);
 			} catch (e) {
 				if (!(e instanceof DisconnectedError)) {
@@ -82,7 +84,8 @@ export default {
 				// Select tool first
 				code = `T${this.tool.number}\n`;
 			}
-			if (this.tool.filament) {
+			if (this.tool.filamentExtruder >= 0 && this.tool.filamentExtruder < this.extruders.length &&
+				this.extruders[this.tool.filamentExtruder].filament) {
 				// Unload current filament
 				code += 'M702\n';
 			}

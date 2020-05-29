@@ -2,9 +2,9 @@
 
 import { mapConnectorActions } from './connector'
 
-import BaseConnector from './connector/BaseConnector.js'
 import cache from './cache.js'
 import model from './model.js'
+import { StatusType, isPrinting } from './modelEnums.js'
 import settings from './settings.js'
 
 import i18n from '../../i18n'
@@ -14,25 +14,33 @@ import { log, logCode } from '../../plugins/logging.js'
 import { makeFileTransferNotification, showMessage } from '../../plugins/toast.js'
 
 import beep from '../../utils/beep.js'
-import { DisconnectedError, CodeBufferError, OperationCancelledError } from '../../utils/errors.js'
+import { DisconnectedError, CodeBufferError, InvalidPasswordError, OperationCancelledError } from '../../utils/errors.js'
 import Path from '../../utils/path.js'
 
 export const defaultMachine = '[default]'			// must not be a valid hostname
 
-export function getModifiedDirectory(action, state) {
+export function getModifiedPaths(action, state) {
 	const segments = action.type.split('/');
 	if (segments.length === 3 && segments[1] === state.selectedMachine) {
 		if (segments[2] === 'onDirectoryCreated' || segments[2] === 'onFileOrDirectoryDeleted') {
-			return Path.extractFilePath(action.payload);
+			return [action.payload];
 		}
 		if (segments[2] === 'onFileUploaded') {
-			return Path.extractFilePath(action.payload.filename);
+			return [action.payload.filename];
 		}
 		if (segments[2] === 'onFileOrDirectoryMoved') {
-			return Path.extractFilePath(action.payload.to);
+			return [action.payload.from, action.payload.to];
 		}
 	}
-	return undefined;
+	return [];
+}
+
+export function getModifiedDirectories(action, state) {
+	return getModifiedPaths(action, state).map(path => Path.extractDirectory(path));
+}
+
+export function getModifiedFiles(action, state) {
+	return getModifiedPaths(action, state).map(path => Path.extractFileName(path));
 }
 
 export default function(hostname, connector) {
@@ -41,33 +49,47 @@ export default function(hostname, connector) {
 		state: {
 			autoSleep: false,
 			events: [],								// provides machine events in the form of { date, type, title, message }
-			isReconnecting: false
+			isReconnecting: false,
+		},
+		getters: {
+			connector: () => connector,
+			hasTemperaturesToDisplay: state => state.model.sensors.analog.some(function(sensor, sensorIndex) {
+				return (state.model.heat.heaters.some(heater => heater && heater.sensor === sensorIndex) ||
+						state.settings.displayedExtraTemperatures.indexOf(sensorIndex) !== -1);
+			})
 		},
 		actions: {
-			...mapConnectorActions(connector, ['reconnect', 'sendCode', 'upload', 'download', 'getFileInfo']),
+			...mapConnectorActions(connector, ['disconnect', 'delete', 'move', 'makeDirectory', 'getFileList', 'getFileInfo']),
 
 			// Reconnect after a connection error
-			async reconnect({ commit }) {
+			async reconnect({ commit, dispatch }) {
 				commit('setReconnecting', true);
-				await connector.reconnect();
+				try {
+					await connector.reconnect();
+					commit('setReconnecting', false);
+					log('success', i18n.t('events.reconnected'));
+				} catch (e) {
+					console.warn(e);
+					dispatch('onConnectionError', e);
+				}
 			},
 
 			// Send a code and log the result (if applicable)
-			// Parameter can be either a string or an object { code, (fromInput, log = true) }
+			// Parameter can be either a string or an object { code, (fromInput = false, log = true) }
 			async sendCode(context, payload) {
 				const code = (payload instanceof Object) ? payload.code : payload;
-				const fromInput = (payload instanceof Object && payload.fromInput !== undefined) ? !!payload.fromInput : false;
-				const doLog = (payload instanceof Object && payload.log !== undefined) ? !!payload.log : true;
+				const fromInput = (payload instanceof Object && payload.fromInput !== undefined) ? Boolean(payload.fromInput) : false;
+				const doLog = (payload instanceof Object && payload.log !== undefined) ? Boolean(payload.log) : true;
 				try {
 					const response = await connector.sendCode(code);
-					if (fromInput) {	// FIXME enhance this
+					if (doLog && (fromInput || response !== '')) {
 						logCode(code, response, hostname, fromInput);
 					}
 					return response;
 				} catch (e) {
 					if (!(e instanceof DisconnectedError) && doLog) {
 						const type = (e instanceof CodeBufferError) ? 'warning' : 'error';
-						log(type, e, undefined, hostname);
+						log(type, code, e.message, hostname);
 					}
 					throw e;
 				}
@@ -75,13 +97,16 @@ export default function(hostname, connector) {
 
 			// Upload a file and show progress
 			async upload(context, { filename, content, showProgress = true, showSuccess = true, showError = true, num, count }) {
-				const cancelSource = BaseConnector.getCancelSource();
-				const notification = showProgress && makeFileTransferNotification('upload', filename, cancelSource, num, count);
+				const cancellationToken = {}, startTime = new Date();
+				const notification = showProgress && makeFileTransferNotification('upload', filename, cancellationToken, num, count);
+
 				try {
 					// Check if config.g needs to be backed up
-					if (filename === Path.configFile) {
+					const configFile = Path.combine(context.state.model.directories.system, Path.configFile);
+					if (Path.equals(filename, configFile)) {
 						try {
-							await connector.move({ from: Path.configFile, to: Path.configBackupFile, force: true });
+							const configFileBackup = Path.combine(context.state.model.directories.system, Path.configBackupFile);
+							await connector.move({ from: configFile, to: configFileBackup, force: true, silent: true });
 						} catch (e) {
 							console.warn(e);
 							log('error', i18n.t('notification.upload.error', [Path.extractFileName(filename)]), e.message, hostname);
@@ -89,9 +114,9 @@ export default function(hostname, connector) {
 						}
 					}
 
-					// Perform upload
-					const startTime = new Date();
-					const response = await connector.upload({ filename, content, cancelSource, onProgress: notification && notification.onProgress });
+					// Clear the cached file info and wait for upload to finish
+					context.commit('cache/clearFileInfo', filename);
+					await connector.upload({ filename, content, cancellationToken, onProgress: notification && notification.onProgress });
 
 					// Show success message
 					if (showSuccess && num === count) {
@@ -103,11 +128,10 @@ export default function(hostname, connector) {
 						}
 					}
 
-					// Return the response
+					// Hide the notification again
 					if (showProgress) {
 						notification.hide();
 					}
-					return response;
 				} catch (e) {
 					// Show and report error message
 					if (showProgress) {
@@ -125,18 +149,19 @@ export default function(hostname, connector) {
 			// Parameter can be either the filename or an object { filename, (type, showProgress, showSuccess, showError, num, count) }
 			async download(context, payload) {
 				const filename = (payload instanceof Object) ? payload.filename : payload;
-				const type = (payload instanceof Object) ? payload.type : 'auto';
-				const showProgress = (payload instanceof Object && payload.showSuccess !== undefined) ? payload.showProgress : true;
-				const showSuccess = (payload instanceof Object && payload.showSuccess !== undefined) ? payload.showSuccess : true;
-				const showError = (payload instanceof Object && payload.showError !== undefined) ? payload.showError : true;
+				const type = (payload instanceof Object && payload.type !== undefined) ? payload.type : 'json';
+				const showProgress = (payload instanceof Object && payload.showProgress !== undefined) ? Boolean(payload.showProgress) : true;
+				const showSuccess = (payload instanceof Object && payload.showSuccess !== undefined) ? Boolean(payload.showSuccess) : true;
+				const showError = (payload instanceof Object && payload.showError !== undefined) ? Boolean(payload.showError) : true;
 				const num = (payload instanceof Object) ? payload.num : undefined;
 				const count = (payload instanceof Object) ? payload.count : undefined;
 
-				const cancelSource = BaseConnector.getCancelSource();
-				const notification = showProgress && makeFileTransferNotification('download', filename, cancelSource, num, count);
+				const cancellationToken = {}, startTime = new Date();
+				const notification = showProgress && makeFileTransferNotification('download', filename, cancellationToken, num, count);
+
 				try {
-					const startTime = new Date();
-					const response = await connector.download({ filename, type, cancelSource, onProgress: notification && notification.onProgress });
+					// Wait for download to finish
+					const response = await connector.download({ filename, type, cancellationToken, onProgress: notification && notification.onProgress });
 
 					// Show success message
 					if (showSuccess && num === count) {
@@ -148,7 +173,7 @@ export default function(hostname, connector) {
 						}
 					}
 
-					// Return the downloaded data
+					// Hide the notification again and return the downloaded data
 					if (showProgress) {
 						notification.hide();
 					}
@@ -166,53 +191,65 @@ export default function(hostname, connector) {
 				}
 			},
 
-			// Get info about the specified filename
-			async getFileInfo({ state, commit }, filename) {
-				if (state.cache.fileInfos.hasOwnProperty(filename)) {
-					return state.cache.fileInfos[filename];
-				}
-
-				const fileInfo = await connector.getFileInfo(filename);
-				commit('cache/setFileInfo', { filename, fileInfo });
-				return fileInfo;
-			},
-
 			// Update machine mode. Reserved for the machine connector!
 			async update({ state, commit, dispatch }, payload) {
-				const wasPrinting = state.model.state.isPrinting, lastJobFile = state.model.job.file.name;
+				const lastBeepFrequency = state.model.state.beep ? state.model.state.beep.frequency : null;
+				const lastBeepDuration = state.model.state.beep ? state.model.state.beep.duration : null;
+				const lastDisplayMessage = state.model.state.displayMessage;
+				const lastStatus = state.model.state.status;
+
+				// Check if the job has finished and if so, clear the file cache
+				if (payload.job && payload.job.lastFileName && payload.job.lastFileName !== state.model.job.lastFileName) {
+					commit('cache/clearFileInfo', payload.job.lastFileName);
+				}
 
 				// Merge updates into the object model
 				commit('model/update', payload);
+				
+				// Is a new beep requested?
+				if (state.model.state.beep &&
+					lastBeepDuration !== state.model.state.beep.duration &&
+					lastBeepFrequency !== state.model.state.beep.frequency) {
+					beep(state.model.state.beep.frequency, state.model.state.beep.duration);
+				}
 
-				// Is an update or emergency reset in progress?
-				const reconnect = (state.model.state.status === 'updating') || (state.model.state.status === 'halted');
-				if (reconnect) {
-					commit('setReconnecting', true);
-				} else {
-					if (state.isReconnecting) {
-						commit('setReconnecting', false);
-					}
-					
-					// Have we just finished a job?
-					if (wasPrinting && !state.model.state.isPrinting) {
-						// Clear the cache of the last file
-						commit('cache/clearFileInfo', lastJobFile);
+				// Is a new message supposed to be shown?
+				if (state.model.state.displayMessage &&
+					state.model.state.displayMessage != lastDisplayMessage) {
+					showMessage(state.model.state.displayMessage);
+				}
 
-						// Send M1 if auto-sleep is enabled
-						if (state.autoSleep) {
-							try {
-								await dispatch('sendCode', 'M1');
-							} catch (e) {
-								logCode('M1', e.message, hostname);
-							}
-						}
+				// Has the firmware halted?
+				if (lastStatus != state.model.state.status && state.model.state.status === StatusType.halted) {
+					log('warning', i18n.t('events.emergencyStop'));
+				}
+
+				// Have we just finished a job? Send M1 if auto-sleep is enabled
+				if (isPrinting(lastStatus) && !isPrinting(state.model.state.status) && state.autoSleep) {
+					try {
+						await dispatch('sendCode', 'M1');
+					} catch (e) {
+						logCode('M1', e.message, hostname);
 					}
 				}
 			},
 
 			// Actions for specific events triggered by the machine connector
-			async onConnectionError({ dispatch }, error) {
-				await dispatch('onConnectionError', { hostname, error }, { root: true });
+			async onConnectionError({ state, commit, dispatch }, error) {
+				if (state.isReconnecting && !(error instanceof InvalidPasswordError)) {
+					// Retry after a short moment
+					setTimeout(() => dispatch('reconnect'), 2000);
+				} else if (!state.isReconnecting && (state.model.state.status === StatusType.updating || state.model.state.status === StatusType.halted)) {
+					// Try to reconnect after a short period of time
+					if (state.model.state.status !== StatusType.updating) {
+						log('warning', i18n.t('events.reconnecting'));
+					}
+					commit('setReconnecting', true);
+					setTimeout(() => dispatch('reconnect'), 2000);
+				} else {
+					// Notify the root store about this event
+					await dispatch('onConnectionError', { hostname, error }, { root: true });
+				}
 			},
 			onCodeCompleted(context, { code, reply }) {
 				if (code === undefined) {
@@ -231,14 +268,12 @@ export default function(hostname, connector) {
 			clearLog: state => state.events = [],
 			log: (state, payload) => state.events.push(payload),
 
-			beep: (state, { frequency, duration }) => beep(frequency, duration),
-			message: (state, message) => showMessage(message),
 			unregister: () => connector.unregister(),
 
 			setAutoSleep: (state, value) => state.autoSleep = value,
 			setReconnecting: (state, reconnecting) => state.isReconnecting = reconnecting,
-			setHighVerbosity() { connector.verbose = true; },
-			setNormalVerbosity() { connector.verbose = false; }
+			setHighVerbosity() { if (connector) { connector.verbose = true; } },
+			setNormalVerbosity() { if (connector) { connector.verbose = false; } }
 		},
 		modules: {
 			cache: cache(hostname),

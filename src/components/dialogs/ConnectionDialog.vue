@@ -1,34 +1,80 @@
 <template>
-	<v-dialog :value="isConnecting || isReconnecting || isDisconnecting" persistent width="480">
-		<v-card color="primary" dark>
-			<v-card-text>
+	<v-overlay :value="shown" :opacity="0.3">
+		<v-card color="primary" width="480">
+			<v-card-title class="subtitle-1">
 				{{ message }}
-				<v-progress-linear indeterminate color="white" class="mb-0"></v-progress-linear>
+			</v-card-title>
+
+			<v-card-text>
+				<v-progress-linear :indeterminate="connectingProgress < 0" :value="connectingProgress" color="white" class="mb-0"></v-progress-linear>
+				<center>
+					<code-btn v-show="displayReset && isConnected" class="mt-5" code="M999" :log="false" color="warning" :title="$t('button.reset.title')">
+						<v-icon class="mr-1">mdi-refresh</v-icon> {{ $t('button.reset.caption') }}
+					</code-btn>
+				</center>
 			</v-card-text>
 		</v-card>
-	</v-dialog>
+	</v-overlay>
 </template>
 
 <script>
 'use strict'
 
-import { mapState } from 'vuex'
+import { mapState, mapGetters } from 'vuex'
+
+import { StatusType } from '../../store/machine/modelEnums.js'
 
 export default {
 	computed: {
-		...mapState(['isConnecting', 'isDisconnecting']),
+		...mapState(['connectingProgress', 'isConnecting', 'isDisconnecting']),
+		...mapGetters(['isConnected']),
 		...mapState('machine', ['isReconnecting']),
+		...mapState('machine/model', {
+			status: state => state.state.status
+		}),
 		message() {
-			if (this.isConnecting) {
-				return 'Connecting...';
+			if (this.isConnecting || this.connectingProgress >= 0) {
+				return this.$t('dialog.connection.connecting');
+			}
+			if (this.status === StatusType.updating) {
+				return this.$t('dialog.connection.updating');
 			}
 			if (this.isReconnecting) {
-				return 'Connection lost, attempting to reconnect...';
+				return this.$t('dialog.connection.reconnecting');
 			}
 			if (this.isDisconnecting) {
-				return 'Disconnecting...';
+				return this.$t('dialog.connection.disconnecting');
 			}
-			return 'Please stand by...';
+			return this.$t('dialog.connection.standBy');
+		},
+		shown() {
+			return (this.isConnecting || this.connectingProgress >= 0 || this.isReconnecting || this.isDisconnecting ||
+					this.status === StatusType.halted || this.status === StatusType.updating);
+		}
+	},
+	data() {
+		return {
+			displayReset: false,
+			haltedTimer: null
+		}
+	},
+	methods: {
+		showResetButton() {
+			this.haltedTimer = null;
+			this.displayReset = true;
+		}
+	},
+	watch: {
+		status(to) {
+			if (to === StatusType.halted) {
+				this.haltedTimer = setTimeout(this.showResetButton.bind(this), 4000);
+			} else {
+				if (this.haltedTimer) {
+					clearTimeout(this.haltedTimer);
+					this.haltedTimer = null;
+				}
+				this.displayReset = false;
+			}
 		}
 	}
 }

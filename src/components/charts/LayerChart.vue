@@ -1,29 +1,27 @@
 <style scoped>
-.card {
-	display: flex;
-	flex-direction: column;
-	width: 100%;
+.content {
+	position: relative;
+	min-height: 180px;
 }
 
-.content {
-	flex-grow: 1;
-	min-height: 200px;
+.content > canvas {
+	position: absolute;
 }
 </style>
 
 <template>
-	<v-card class="card">
+	<v-card class="d-flex flex-column flex-grow-1">
 		<v-card-title>
 			<span>
-				<v-icon small class="mr-1">timeline</v-icon> Layer Chart
+				<v-icon small class="mr-1">mdi-vector-polyline</v-icon> {{ $t('chart.layer.caption') }}
 			</span>
 			<v-spacer></v-spacer>
-			<a v-show="job.layers.length > 30" href="#" @click.prevent="showAllLayers = !showAllLayers">
-				{{ showAllLayers ? 'Show Last 30 Layers' : 'Show All Layers' }}
+			<a v-show="job.layers.length > 30" href="javascript:void(0)" @click.prevent="showAllLayers = !showAllLayers">
+				{{ showAllLayers ? $t('chart.layer.showLastLayers', [30]) : $t('chart.layer.showAllLayers') }}
 			</a>
 		</v-card-title>
 
-		<v-card-text class="content px-2 py-0">
+		<v-card-text class="content flex-grow-1 px-2 py-0">
 			<canvas ref="chart"></canvas>
 		</v-card-text>
 	</v-card>
@@ -43,7 +41,7 @@ let layers
 export default {
 	computed: {
 		...mapState('machine/model', ['job']),
-		...mapState('settings', ['darkTheme'])
+		...mapState('settings', ['darkTheme', 'language'])
 	},
 	data() {
 		return {
@@ -83,6 +81,7 @@ export default {
 	},
 	mounted() {
 		// Create new chart options. Don't use data for the following because it should not be reactive
+		const that = this;
 		this.options = {
 			elements: {
 				line: {
@@ -143,13 +142,13 @@ export default {
 			tooltips: {
 				displayColors: false,
 				callbacks: {
-					title: tooltipItems => `Layer ${tooltipItems[0].index + 1}`,
+					title: tooltipItems => that.$t('chart.layer.layer', [tooltipItems[0].index + 1]),
 					label(tooltipItem) {
 						const layer = layers[tooltipItem.index];
-						let result = [`Duration: ${displayTime(layer.duration, false)}`];
-						if (layer.height) { result.push(`Layer Height: ${displayZ(layer.height)}`); }
-						if (layer.filament) { result.push(`Filament Usage: ${display(layer.filament, 1, 'mm')}`); }
-						if (layer.fractionPrinted) { result.push(`File Progress: ${display(layer.fractionPrinted * 100, 1, '%')}`); }
+						let result = [that.$t('chart.layer.layerDuration', [displayTime(layer.duration, false)])];
+						if (layer.height) { result.push(that.$t('chart.layer.layerHeight', [displayZ(layer.height)])); }
+						if (layer.filament) { result.push(that.$t('chart.layer.filamentUsage', [display(layer.filament, 1, 'mm')])); }
+						if (layer.fractionPrinted) { result.push(that.$t('chart.layer.fractionPrinted', [display(layer.fractionPrinted * 100, 1, '%')])); }
 						return result;
 					}
 				}
@@ -165,7 +164,7 @@ export default {
 					borderColor: 'rgba(0, 129, 214, 0.8)',
 					backgroundColor: 'rgba(0, 129, 214, 0.8)',
 					fill: false,
-					label: 'Layer Time'
+					label: this.$t('chart.layer.layerTime')
 				}]
 			}
 		});
@@ -175,6 +174,9 @@ export default {
 	watch: {
 		darkTheme(to) {
 			this.applyDarkTheme(to);
+		},
+		language() {
+			this.chart.data.datasets[0].label = this.$t('chart.layer.layerTime');
 		},
 		'job.layers'() {
 			this.updateChart();

@@ -4,15 +4,15 @@ import { LoginError } from '../../../utils/errors.js'
 
 import BaseConnector from './BaseConnector.js'
 import PollConnector from './PollConnector.js'
-// import RestSocketConnector from './RestSocketConnector.js'	// TODO: Replace status updates with websocket and other requests with REST
+import RestConnector from './RestConnector.js'
 
-const connectors = [PollConnector]
+const connectors = [PollConnector, RestConnector]
 export const MachineActions = ['disconnect', 'sendCode', 'upload', 'delete', 'move', 'makeDirectory', 'download', 'getFileList', 'getFileInfo']
 
-export function mapConnectorActions(connector, toIgnore = []) {
+export function mapConnectorActions(connector, actionsToMap = []) {
 	let actions = {}
 	if (connector) {
-		MachineActions.filter(action => toIgnore.indexOf(action) === -1).forEach(function(action) {
+		actionsToMap.forEach(function(action) {
 			// Map action to the connector
 			actions[action] = function handler(context, payload) { return connector[action](payload); }
 		});
@@ -24,12 +24,11 @@ export default {
 	// Connect asynchronously and return the connector that worked.
 	// If no connector can be found, an error will be thrown.
 	async connect(hostname, user, password) {
-		let connector = null, lastError = null;
+		let lastError = new LoginError();
 		for (let i = 0; i < connectors.length; i++) {
 			try {
-				connector = await connectors[i].connect(hostname, user, password);
-				lastError = null;
-				break;
+				const connector = await connectors[i].connect(hostname, user, password);
+				return connector;
 			} catch (e) {
 				lastError = e;
 				if (e instanceof LoginError) {
@@ -38,11 +37,7 @@ export default {
 				}
 			}
 		}
-
-		if (lastError !== null) {
-			throw lastError;
-		}
-		return connector;
+		throw lastError;
 	},
 
 	// Install the global Vuex store

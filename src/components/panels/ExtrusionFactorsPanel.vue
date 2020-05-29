@@ -1,49 +1,42 @@
 <template>
 	<v-card>
 		<v-card-title class="pb-0">
-			<v-icon small class="mr-1">texture</v-icon> Extrusion Factors
+			<v-icon small class="mr-1">mdi-texture</v-icon> {{ $t('panel.extrusionFactors.caption') }}
 			<v-spacer></v-spacer>
 			<v-menu offset-y right auto>
-				<template slot="activator">
-					<a v-show="!uiFrozen && move.extruders.length" href="#" @click.prevent="">
-						Change Visibility
+				<template #activator="{ on }">
+					<a v-show="!uiFrozen && move.extruders.length" v-on="on" href="javascript:void(0)" class="subtitle-2">
+						{{ $t('panel.extrusionFactors.changeVisibility') }}
 					</a>
 				</template>
 
 				<v-list>
-					<v-list-tile v-for="(extruder, index) in move.extruders" :key="index" @click="toggleExtruderVisibility(index)">
+					<v-list-item v-for="(extruder, index) in move.extruders" :key="index" @click="toggleExtruderVisibility(index)">
 						<v-icon class="mr-1">
-							{{ (displayedExtruders.indexOf(index) !== -1) ? 'check_box' : 'check_box_outline_blank' }}
+							{{ (displayedExtruders.indexOf(index) !== -1) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank' }}
 						</v-icon>
-						{{ `Extruder ${index}` }}
-					</v-list-tile>
+						{{ $t('panel.extrusionFactors.extruder', [index]) }}
+					</v-list-item>
 				</v-list>
 			</v-menu>
 		</v-card-title>
 		
-		<v-layout v-if="!!visibleExtruders.length" column class="px-3">
-			<v-flex v-for="extruder in visibleExtruders" :key="extruder">
-				<v-flex class="pt-2">
-					<v-layout row>
-						<v-flex tag="span">
-							{{ `Extruder ${extruder}` }}
-						</v-flex>
-						<v-spacer></v-spacer>
-						<v-flex shrink>
-							<a href="#" v-show="move.extruders[extruder].factor !== 1.0" flat small color="primary" @click.prevent="setExtrusionFactor(extruder, 100)">
-								<v-icon small class="mr-1">settings_backup_restore</v-icon> {{ $t('generic.reset') }}
-							</a>
-						</v-flex>
-					</v-layout>
-				</v-flex>
-				<v-flex>
-					<slider :value="getExtrusionFactor(extruder)" @input="setExtrusionFactor(extruder, $event)" :max="getMax(extruder)" :disabled="uiFrozen"></slider>
-				</v-flex>
-			</v-flex>
-		</v-layout>
+		<v-card-text v-if="visibleExtruders.length" class="d-flex flex-column pb-0">
+			<div v-for="extruder in visibleExtruders" :key="extruder" class="d-flex flex-column pt-2">
+				<div class="d-inline-flex">
+					{{ $t('panel.extrusionFactors.extruder', [extruder]) }}
+					<v-spacer></v-spacer>
+					<a v-show="move.extruders[extruder].factor !== 1.0" href="javascript:void(0)" :disabled="uiFrozen" @click.prevent="setExtrusionFactor(extruder, 100)" class="subtitle-2">
+						<v-icon small class="mr-1">mdi-backup-restore</v-icon> {{ $t('generic.reset') }}
+					</a>
+				</div>
 
-		<v-alert type="info" :value="!visibleExtruders.length">
-			No Extruders Configured
+				<slider :value="getExtrusionFactor(extruder)" @input="setExtrusionFactor(extruder, $event)" :max="getMax(extruder)" :disabled="uiFrozen"></slider>
+			</div>
+		</v-card-text>
+
+		<v-alert type="info" :value="!visibleExtruders.length" class="mb-0">
+			{{ $t('panel.extrusionFactors.noExtruders') }}
 		</v-alert>
 	</v-card>
 </template>

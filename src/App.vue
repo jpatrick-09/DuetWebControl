@@ -54,14 +54,27 @@ input::-webkit-inner-spin-button {
 a:not(:hover) {
 	text-decoration: none;
 }
-.v-list__group__header--active .v-list__group__header__prepend-icon .v-icon {
-	color: #758bae !important;
+
+textarea {
+	line-height: 1.25rem !important;
+}
+
+.theme--dark textarea {
+	caret-color: #FFF;
+}
+
+.v-item-group.theme--dark .v-btn__content {
+	color: #FFF !important;
+}
+
+.v-card__title {
+	font-size: 1rem;
 }
 </style>
 
 <template>
-	<v-app :dark="darkTheme">
-		<v-navigation-drawer persistent clipped v-model="drawer" enable-resize-watcher fixed app>
+	<v-app>
+		<v-navigation-drawer v-model="drawer" clipped fixed app width="300">
 			<div class="pa-2 hidden-sm-and-up">
 				<connect-btn v-if="isLocal" class="mb-3" block></connect-btn>
 				<emergency-btn block></emergency-btn>
@@ -69,24 +82,24 @@ a:not(:hover) {
 
 			<v-list class="pt-0" :expand="$vuetify.breakpoint.mdAndUp">
 				<v-list-group v-for="(category, index) in routing" :key="index" :prepend-icon="category.icon" no-action :value="isExpanded(category)">
-					<v-list-tile slot="activator">
-						<v-list-tile-title>{{ $t(category.caption) }}</v-list-tile-title>
-					</v-list-tile>
-
-					<template v-for="(page, pageIndex) in category.pages">
-						<v-list-tile v-if="checkMenuCondition(page.condition)" :key="`${index}-${pageIndex}`" v-ripple :to="page.path" @click.prevent>
-							<v-list-tile-action>
-								<v-icon>{{ page.icon }}</v-icon>
-							</v-list-tile-action>
-							<v-list-tile-title>{{ $t(page.caption) }}</v-list-tile-title>
-						</v-list-tile>
+					<template #activator>
+						<v-list-item-title>{{ $t(category.caption) }}</v-list-item-title>
 					</template>
+
+					<v-list-item v-for="(page, pageIndex) in category.pages.filter(page => checkMenuCondition(page.condition))" :key="`${index}-${pageIndex}`" v-ripple :to="page.path" @click.prevent="">
+						<v-list-item-icon>
+							<v-icon>{{ page.icon }}</v-icon>
+						</v-list-item-icon>
+						<v-list-item-title>{{ $t(page.caption) }}</v-list-item-title>
+					</v-list-item>
 				</v-list-group>
 			</v-list>
 		</v-navigation-drawer>
 
-		<v-toolbar ref="appToolbar" app clipped-left>
-			<v-toolbar-side-icon @click.stop="drawer = !drawer" v-tab-control></v-toolbar-side-icon>
+		<v-app-bar ref="appToolbar" app clipped-left>
+			<v-app-bar-nav-icon @click.stop="drawer = !drawer">
+				<v-icon>mdi-menu</v-icon>
+			</v-app-bar-nav-icon>
 			<v-toolbar-title>
 				<!-- TODO: Optional OEM branding -->
 				<img class="logo" src="./assets/DWC_3DP_logo.png" width="55px">
@@ -96,53 +109,45 @@ a:not(:hover) {
 
 			<v-spacer></v-spacer>
 
-			<code-input class="hidden-sm-and-down"></code-input>
+			<code-input class="mx-3 hidden-sm-and-down"></code-input>
 
 			<v-spacer></v-spacer>
 
-			<upload-btn target="start" class="hidden-sm-and-down"></upload-btn>
+			<upload-btn target="start" class="mr-3 hidden-sm-and-down"></upload-btn>
 			<emergency-btn class="hidden-xs-only"></emergency-btn>
 
-			<v-btn icon class="hidden-md-and-up" :class="toggleGlobalContainerColor" @click="hideGlobalContainer = !hideGlobalContainer">
-				<v-icon>aspect_ratio</v-icon>
+			<v-btn icon class="hidden-md-and-up ml-3" :class="toggleGlobalContainerColor" @click="hideGlobalContainer = !hideGlobalContainer">
+				<v-icon>mdi-aspect-ratio</v-icon>
 			</v-btn>
-			<!-- TODO: Add quick actions and UI designer here -->
-			<!--<v-btn icon class="hidden-sm-and-down" @click="rightDrawer = !rightDrawer">
-				<v-icon>menu</v-icon>
-			</v-btn>-->
-		</v-toolbar>
+		</v-app-bar>
 
 		<v-content id="content">
 			<v-scroll-y-transition>
-				<v-container fluid id="global-container" class="container" v-show="!hideGlobalContainer || $vuetify.breakpoint.mdAndUp">
-					<v-layout row wrap>
-						<v-flex xs12 sm6 md4 lg4>
+				<v-container v-show="!hideGlobalContainer || $vuetify.breakpoint.mdAndUp" id="global-container" fluid class="py-0">
+					<v-row>
+						<v-col cols="12" sm="6" md="4" lg="4" xl="4">
 							<status-panel></status-panel>
-						</v-flex>
+						</v-col>
 
-						<v-flex xs12 sm6 md5 lg4>
+						<v-col cols="12" sm="6" md="5" lg="5" xl="4">
 							<tools-panel></tools-panel>
-						</v-flex>
+						</v-col>
 
-						<v-flex v-if="$vuetify.breakpoint.mdAndUp" d-flex md3 lg4>
+						<v-col v-if="$vuetify.breakpoint.mdAndUp" :class="{ 'd-flex': hasTemperaturesToDisplay }" md="3" lg="3" xl="4">
 							<temperature-chart></temperature-chart>
-						</v-flex>
-					</v-layout>
+						</v-col>
+					</v-row>
 				</v-container>
 			</v-scroll-y-transition>
 
 			<v-divider v-show="!hideGlobalContainer || $vuetify.breakpoint.mdAndUp"></v-divider>
 
-			<v-container fluid id="page-container" class="container">
+			<v-container fluid class="pt-0">
 				<keep-alive>
 					<router-view></router-view>
 				</keep-alive>
 			</v-container>
 		</v-content>
-
-		<!--<v-navigation-drawer temporary right v-model="rightDrawer" fixed app>
-			TODO Add quick access / component list here in design mode
-		</v-navigation-drawer>-->
 
 		<connect-dialog></connect-dialog>
 		<connection-dialog></connection-dialog>
@@ -157,6 +162,7 @@ import Piecon from 'piecon'
 import { mapState, mapGetters, mapActions } from 'vuex'
 
 import { Routing } from './routes'
+import { isPrinting } from './store/machine/modelEnums.js'
 
 export default {
 	computed: {
@@ -164,13 +170,16 @@ export default {
 			isLocal: state => state.isLocal,
 			globalShowConnectDialog: state => state.showConnectDialog,
 
-			isPrinting: state => state.machine.model.state.isPrinting,
+			boards: state => state.machine.model.boards,
+			menuDirectory: state => state.machine.model.directories.menu,
 			name: state => state.machine.model.network.name,
+			status: state => state.machine.model.state.status,
 
 			darkTheme: state => state.settings.darkTheme,
 			webcam: state => state.settings.webcam
 		}),
-		...mapGetters('machine/model', ['board', 'jobProgress']),
+		...mapGetters('machine', ['hasTemperaturesToDisplay']),
+		...mapGetters('machine/model', ['jobProgress']),
 		toggleGlobalContainerColor() {
 			if (this.hideGlobalContainer) {
 				return this.darkTheme ? 'red darken-5' : 'red lighten-4';
@@ -182,7 +191,6 @@ export default {
 		return {
 			drawer: this.$vuetify.breakpoint.lgAndUp,
 			hideGlobalContainer: false,
-			rightDrawer: false,
 			routing: Routing,
 			wasXs: this.$vuetify.breakpoint.xsOnly
 		}
@@ -195,7 +203,7 @@ export default {
 				return (this.webcam.url !== '');
 			}
 			if (condition === 'display') {
-				return this.board.hasDisplay;
+				return (this.boards.length > 0) && this.boards[0].supports12864;
 			}
 			return true;
 		},
@@ -208,7 +216,7 @@ export default {
 		},
 		updateTitle() {
 			const jobProgress = this.jobProgress;
-			const title = ((jobProgress > 0 && this.isPrinting) ? `(${(jobProgress * 100).toFixed(1)}%) ` : '') + this.name;
+			const title = ((jobProgress > 0 && isPrinting(this.status)) ? `(${(jobProgress * 100).toFixed(1)}%) ` : '') + this.name;
 			if (document.title !== title) {
 				document.title = title;
 			}
@@ -216,7 +224,7 @@ export default {
 	},
 	mounted() {
 		// Attempt to disconnect from every machine when the page is being unloaded
-		window.addEventListener('onunload', this.disconnectAll);
+		window.addEventListener('unload', this.disconnectAll);
 
 		// Connect if running on a board
 		if (!this.isLocal) {
@@ -250,17 +258,26 @@ export default {
 		});
 	},
 	watch: {
-		isPrinting(to) {
-			if (to) {
-				// Go to Job Status when a print starts
-				this.$router.push('/Job/Status');
+		darkTheme(to) {
+			this.$vuetify.theme.dark = to;
+		},
+		status(to, from) {
+			const printing = isPrinting(to);
+			if (printing !== isPrinting(from)) {
+				if (printing) {
+					// Go to Job Status when a print starts
+					if (this.$router.currentRoute.path !== '/Job/Status') {
+						this.$router.push('/Job/Status');
+					}
+				} else {
+					// Remove the Piecon again when the print has finished
+					Piecon.reset();
+				}
 			}
 		},
 		name() { this.updateTitle(); },
 		jobProgress(to) {
-			if (to === undefined || to == 1) {
-				Piecon.reset();
-			} else {
+			if (isPrinting(this.status)) {
 				Piecon.setProgress(to * 100);
 			}
 			this.updateTitle();

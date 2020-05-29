@@ -2,7 +2,7 @@
 
 import { defaultMachine } from './index.js'
 import { getLocalSetting, setLocalSetting, removeLocalSetting } from '../../utils/localStorage.js'
-import merge from '../../utils/merge.js'
+import patch from '../../utils/patch.js'
 import Path from '../../utils/path.js'
 
 export default function(hostname) {
@@ -11,29 +11,29 @@ export default function(hostname) {
 		state: {
 			fileInfos: {},
 			sorting: {
-				display: {
-					column: 'name',
-					descending: true
-				},
 				events: {
 					column: 'date',
 					descending: true
 				},
 				filaments: {
 					column: 'name',
-					descending: true
+					descending: false
 				},
 				jobs: {
 					column: 'lastModified',
-					descending: false
+					descending: true
 				},
 				macros: {
 					column: 'name',
-					descending: true
+					descending: false
+				},
+				menu: {
+					column: 'name',
+					descending: false
 				},
 				sys: {
 					column: 'name',
-					descending: true
+					descending: false
 				}
 			}
 		},
@@ -78,20 +78,18 @@ export default function(hostname) {
 			}
 		},
 		mutations: {
-			load: (state, content) => merge(state, content),
+			load: (state, content) => patch(state, content),
 
-			setFileInfo(state, { filename, fileInfo }) {
-				state.fileInfos[filename] = fileInfo;
-			},
+			setFileInfo: (state, { filename, fileInfo }) => state.fileInfos[filename] = fileInfo,
 			clearFileInfo(state, fileOrDirectory) {
 				if (fileOrDirectory) {
-					if (state.fileInfos[fileOrDirectory]) {
+					if (state.fileInfos[fileOrDirectory] !== undefined) {
 						// Delete specific item
 						delete state.fileInfos[fileOrDirectory];
 					} else {
 						// Delete directory items
 						for (let filename in state.fileInfos) {
-							if (Path.extractFilePath(filename) === fileOrDirectory) {
+							if (Path.startsWith(filename, fileOrDirectory)) {
 								delete state.fileInfos[filename];
 							}
 						}

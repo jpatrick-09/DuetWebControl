@@ -1,77 +1,64 @@
 'use strict'
 
+// Fallback definitions for firmware versions that do not support rr_model
 const boardDefinitions = {
-	duetwifi10: {
-		firmwareFileRegEx: /Duet2CombinedFirmware(.*)\.bin/i,
-		firmwareFile: 'Duet2CombinedFirmware.bin',
-		motorWarningCurrent: 2000,
-		motorLimitCurrent: 2400,
-		seriesResistor: 4700,
-		microstepping: true,
-		microsteppingInterpolation: false,
-		maxDrives: 10,
+	duet1: {
+		firmwareFileName: 'RepRapFirmware.bin',
+		iapFileNameSD: 'iap.bin',
 		maxHeaters: 8,
-		maxThermistors: 8,
-		maxRtdBoards: 8,
-		maxFans: 3,
-		hasDisplay: false,
+		maxMotors: 10,
+		supports12864: false,
+		hasEthernet: true,
+		hasWiFi: false
+	},
+	duetwifi: {
+		firmwareFileName: 'Duet2CombinedFirmware.bin',
+		iapFileNameSD: 'iap4e.bin',
+		maxHeaters: 8,
+		maxMotors: 10,
+		supports12864: false,
 		hasEthernet: false,
-		hasWiFi: true,
-		hasPowerFailureDetection: true,
-		hasMotorLoadDetection: true
+		hasWiFi: true
 	},
-	duetethernet10: {
-		firmwareFileRegEx: /Duet2CombinedFirmware(.*)\.bin/i,
-		firmwareFile: 'Duet2CombinedFirmware.bin',
-		motorWarningCurrent: 2000,
-		motorLimitCurrent: 2400,
-		seriesResistor: 4700,
-		microstepping: true,
-		microsteppingInterpolation: false,
-		maxDrives: 10,
+	duetethernet: {
+		firmwareFileName: 'Duet2CombinedFirmware.bin',
+		iapFileNameSD: 'iap4e.bin',
 		maxHeaters: 8,
-		maxThermistors: 8,
-		maxRtdBoards: 8,
-		maxFans: 3,
-		hasDisplay: false,
+		maxMotors: 10,
+		supports12864: false,
 		hasEthernet: true,
-		hasWiFi: false,
-		hasPowerFailureDetection: true,
-		hasMotorLoadDetection: true
+		hasWiFi: false
 	},
-	duetmaestro100: {
-		firmwareFileRegEx: /DuetMaestroFirmware(.*)\.bin/i,
-		firmwareFile: 'DuetMaestroFirmware.bin',
-		motorWarningCurrent: 1200,
-		motorLimitCurrent: 1600,
-		seriesResistor: 2200,
-		microstepping: true,
-		microsteppingInterpolation: true,
-		maxDrives: 7,
+	duetmaestro: {
+		firmwareFileName: 'DuetMaestroFirmware.bin',
 		maxHeaters: 3,
-		maxThermistors: 4,
-		maxRtdBoards: 4,
-		maxFans: 3,
-		hasDisplay: true,
+		maxMotors: 7,
+		iapFileNameSD: 'iap4s.bin',
+		supports12864: true,
 		hasEthernet: true,
-		hasWiFi: false,
-		hasPowerFailureDetection: true,
-		hasMotorLoadDetection: true
-	}
+		hasWiFi: false
+	},
+	duet3: {
+		firmwareFileName: 'Duet3Firmware_MB6HC.bin',
+		iapFileNameSD: 'Duet3SDiap_MB6HC.bin',
+		maxHeaters: 32,
+		maxMotors: 6,
+		supports12864: false,
+		hasEthernet: true,
+		hasWiFi: false
+	},
 }
 
-export const defaultBoardName = 'duetwifi10'
+export const defaultBoardName = 'duet1'
 export const defaultBoard = boardDefinitions[defaultBoardName]
 
-export function isBoardValid(boardType) {
-	return boardDefinitions[boardType] !== undefined;
-}
-
 export function getBoardDefinition(boardType) {
-	if (boardDefinitions[boardType] !== undefined) {
-		return boardDefinitions[boardType];
+	for (let board in boardDefinitions) {
+		if (boardType.startsWith(board)) {
+			return boardDefinitions[board];
+		}
 	}
 
-	console.warn(`Unsupported board ${boardType}, assuming Duet WiFi`);
+	console.warn(`Unsupported board ${boardType}, assuming ${defaultBoardName}`);
 	return boardDefinitions[defaultBoardName];
 }

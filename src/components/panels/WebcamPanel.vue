@@ -61,7 +61,7 @@ img {
 <template>
 	<v-card>
 		<v-card-title>
-			Webcam Surveillance
+			{{ $t('panel.webcam.caption') }}
 		</v-card-title>
 
 		<v-card-text class="pt-0 img-container">
@@ -69,7 +69,8 @@ img {
 				<iframe :src="webcam.url"></iframe>
 			</v-responsive>
 
-			<img v-else alt="(webcam image)" :src="url" :class="imgClasses">
+			<a v-else :href="webcam.liveUrl"><img :alt="$t('panel.webcam.alt')" :src="url" :class="imgClasses"></a>
+
 		</v-card-text>
 	</v-card>
 </template>

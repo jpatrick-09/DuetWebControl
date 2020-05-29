@@ -1,10 +1,10 @@
 <template>
 	<v-card>
 		<v-card-title class="pb-0">
-			<v-icon small class="mr-1">timer</v-icon> Speed Factor
+			<v-icon small class="mr-1">mdi-timer</v-icon> {{ $t('panel.speedFactor.caption') }}
 			<v-spacer></v-spacer>
-			<a href="#" v-show="speedFactor !== 100" flat small color="primary" @click.prevent="sendCode('M220 S100')">
-				<v-icon small class="mr-1">settings_backup_restore</v-icon> {{ $t('generic.reset') }}
+			<a v-show="speedFactor !== 100" href="javascript:void(0)" :disabled="uiFrozen" @click.prevent="sendCode('M220 S100')" class="subtitle-2">
+				<v-icon small class="mr-1">mdi-backup-restore</v-icon> {{ $t('generic.reset') }}
 			</a>
 		</v-card-title>
 
@@ -26,7 +26,7 @@ export default {
 			machineSpeedFactor: state => state.move.speedFactor
 		}),
 		speedFactor: {
-			get() { return this.machineSpeedFactor ? (this.machineSpeedFactor * 100) : 100; },
+			get() { return (this.machineSpeedFactor !== null) ? (this.machineSpeedFactor * 100): 100; },
 			set(value) { this.sendCode(`M220 S${value}`); }
 		},
 		speedFactorMin() { return Math.max(1, Math.min(100, this.speedFactor - 50)); },

@@ -14,50 +14,69 @@ td.title-cell {
 .message {
 	white-space: pre-wrap;
 }
+
+th:last-child {
+	padding-right: 0 !important;
+	width: 1%;
+}
 </style>
 
 <template>
 	<div class="component">
-		<v-data-table :headers="headers" :items="events" :pagination.sync="pagination" hide-actions class="elevation-3" :class="{ 'empty-table-fix' : !events.length }">
-			<template slot="no-data">
-				<v-alert :value="true" type="info" class="ma-0" @contextmenu.prevent="">{{ $t('list.eventLog.noEvents') }}</v-alert>
+		<v-data-table
+			:headers="headers" :items="events" item-key="date"
+			disable-pagination hide-default-footer :mobile-breakpoint="0"
+			:custom-sort="sort" :sort-by.sync="sortBy" :sort-desc.sync="sortDesc" must-sort
+			class="elevation-3" :class="{ 'empty-table-fix' : !events.length }">
+
+			<template #no-data>
+				<v-alert :value="true" type="info" class="text-left ma-0">
+					{{ $t('list.eventLog.noEvents') }}
+				</v-alert>
 			</template>
 
-			<template slot="items" slot-scope="{ item }">
-				<tr :class="getClassByEvent(item.type)" @contextmenu.prevent="showContextMenu($event, item)" v-tab-control.contextmenu>
+			<template #header.btn>
+				<v-menu offset-y>
+					<template #activator="{ on }">
+						<v-btn v-on="on" icon>
+							<v-icon small>mdi-menu</v-icon>
+						</v-btn>
+					</template>
+
+					<v-list>
+						<v-list-item @click="clearLog">
+							<v-icon class="mr-1">mdi-notification-clear-all</v-icon> {{ $t('list.eventLog.clear') }}
+						</v-list-item>
+						<v-list-item :disabled="!events.length" @click="downloadText">
+							<v-icon class="mr-1">mdi-file-download</v-icon> {{ $t('list.eventLog.downloadText') }}
+						</v-list-item>
+						<v-list-item :disabled="!events.length" @click="downloadCSV">
+							<v-icon class="mr-1">mdi-cloud-download</v-icon> {{ $t('list.eventLog.downloadCSV') }}
+						</v-list-item>
+					</v-list>
+				</v-menu>
+			</template>
+
+			<template #item="{ item }">
+				<tr :class="getClassByEvent(item.type)">
 					<td class="log-cell title-cell">
 						{{ item.date.toLocaleString() }}
 					</td>
-					<td class="log-cell content-cell">
+					<td class="log-cell content-cell" colspan="2">
 						<strong>{{ item.title }}</strong>
-						<br v-if="item.title && item.message"/>
+						<br v-if="item.title && item.message">
 						<span v-if="item.message" class="message" v-html="formatMessage(item.message)"></span>
 					</td>
 				</tr>
 			</template>
 		</v-data-table>
-
-		<v-menu v-model="contextMenu.shown" :position-x="contextMenu.x" :position-y="contextMenu.y" absolute offset-y v-tab-control.contextmenu>
-			<v-list>
-				<v-list-tile ref="firstMenuItem" v-show="contextMenu.item" @click="copy" tabindex="0">
-					<v-icon class="mr-1">assignment</v-icon> {{ $t('list.eventLog.copy') }}
-				</v-list-tile>
-				<v-list-tile @click="clearLog" tabindex="0">
-					<v-icon class="mr-1">clear_all</v-icon> {{ $t('list.eventLog.clear') }}
-				</v-list-tile>
-				<v-list-tile :disabled="!events.length" @click="downloadText" tabindex="0">
-					<v-icon class="mr-1">font_download</v-icon> {{ $t('list.eventLog.downloadText') }}
-				</v-list-tile>
-				<v-list-tile :disabled="!events.length" @click="downloadCSV" tabindex="0">
-					<v-icon class="mr-1">cloud_download</v-icon> {{ $t('list.eventLog.downloadCSV') }}
-				</v-list-tile>
-			</v-list>
-		</v-menu>
 	</div>
 </template>
 
 <script>
 'use strict'
+
+import i18n from '../../i18n'
 
 import saveAs from 'file-saver'
 import { mapState, mapMutations } from 'vuex'
@@ -66,39 +85,45 @@ export default {
 	computed: {
 		...mapState('machine', ['events']),
 		...mapState('machine/cache', ['sorting']),
-		...mapState('settings', ['darkTheme'])
-	},
-	data() {
-		return {
-			contextMenu: {
-				shown: false,
-				item: null,
-				x: 0,
-				y: 0
-			},
-			headers: [
+		...mapState('settings', ['darkTheme']),
+		headers() {
+			return [
 				{
-					text: this.$t('list.eventLog.date'),
+					text: i18n.t('list.eventLog.date'),
 					value: 'date',
 					width: '15%'
 				},
 				{
-					text: this.$t('list.eventLog.message'),
+					text: i18n.t('list.eventLog.message'),
 					value: 'message',
 					sortable: false,
-					width: '75%'
+					width: '74%'
+				},
+				{
+					text: '',
+					value: 'btn',
+					sortable: false,
+					width: '1%'
 				}
-			],
-			pagination: {
-				sortBy: 'date',
-				descending: true,
-				rowsPerPage: -1
+			]
+		},
+		sortBy: {
+			get() { return this.sorting.events.column; },
+			set(value) {
+				this.setSorting({ table: 'events', column: value, descending: this.sortDesc });
+			}				
+		},
+		sortDesc: {
+			get() { return this.sorting.events.descending; },
+			set(value) {
+				this.setSorting({ table: 'events', column: this.sortBy, descending: value });
 			}
 		}
 	},
 	methods: {
 		...mapMutations('machine', ['clearLog']),
 		...mapMutations('machine/cache', ['setSorting']),
+		getHeaderText: (header) => (header.text instanceof(Function)) ? header.text() : header.text,
 		getClassByEvent(type) {
 			if (this.darkTheme) {
 				switch (type) {
@@ -119,29 +144,6 @@ export default {
 		formatMessage(message) {
 			return message.replace(/Error:/g, '<strong>Error:</strong>').replace(/Warning:/g, '<strong>Warning:</strong>');
 		},
-		changeSort(column) {
-			if (this.pagination.sortBy === column) {
-				this.pagination.descending = !this.pagination.descending;
-			} else {
-				this.pagination.sortBy = column;
-				this.pagination.descending = false;
-			}
-		},
-		showContextMenu(e, item) {
-			this.contextMenu.shown = false;
-			this.contextMenu.item = item;
-			this.contextMenu.x = e.clientX;
-			this.contextMenu.y = e.clientY;
-			this.$nextTick(() => {
-				this.contextMenu.shown = true;
-			});
-		},
-		copy() {
-			const title = this.contextMenu.item.title.replace(/\n/g, '\r\n');
-			const message = this.contextMenu.item.message ? this.contextMenu.item.message.replace(/\n/g, '\r\n') : '';
-			const value = `${this.contextMenu.item.date.toLocaleString()}: ${message ? (title + ": " + message) : title}`;
-			navigator.clipboard.writeText(value);
-		},
 		downloadText() {
 			let textContent = '';
 			this.events.forEach(function(e) {
@@ -150,7 +152,7 @@ export default {
 				textContent += `${e.date.toLocaleString()}: ${message ? (title + ": " + message) : title}\r\n`;
 			});
 
-			const file = new File([textContent], "console.txt", {type: "text/plain;charset=utf-8"});
+			const file = new File([textContent], 'console.txt', { type: 'text/plain;charset=utf-8' });
 			saveAs(file);
 		},
 		downloadCSV() {
@@ -161,29 +163,32 @@ export default {
 				csvContent += `"${e.date.toLocaleDateString()}","${e.date.toLocaleTimeString()}","${title}","${message}"\r\n`;
 			});
 
-			const file = new File([csvContent], "console.csv", {type: "text/csv;charset=utf-8"});
+			const file = new File([csvContent], 'console.csv', { type: 'text/csv;charset=utf-8' });
 			saveAs(file);
-		}
-	},
-	mounted() {
-		this.pagination.sortBy = this.sorting.events.column;
-		this.pagination.descending = this.sorting.events.descending;
-	},
-	watch: {
-		pagination: {
-			deep: true,
-			handler(to) {
-				if (this.sorting.events.column !== to.sortBy || this.sorting.events.descending !== to.descending) {
-					this.setSorting({ table: 'events', column: to.sortBy, descending: to.descending });
-				}
-			}
 		},
-		'sorting.events': {
-			deep: true,
-			handler(to) {
-				this.pagination.sortBy = to.column;
-				this.pagination.descending = to.descending;
+		sort(items, sortBy, sortDesc) {
+			// FIXME This method should not be needed but it appears like Vuetify's default
+			// sort algorithm only takes into account times but not dates
+
+			// Sort by datetime - everything else is unsupported
+			items.sort(function(a, b) {
+				if (a.date === b.date) {
+					return 0;
+				}
+				if (a.date === null || a.date === undefined) {
+					return -1;
+				}
+				if (b.date === null || b.date === undefined) {
+					return 1;
+				}
+				return a.date - b.date;
+			});
+
+			// Deal with descending order
+			if (sortDesc[0]) {
+				items.reverse();
 			}
+			return items;
 		}
 	}
 }

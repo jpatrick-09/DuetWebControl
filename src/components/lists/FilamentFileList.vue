@@ -5,50 +5,58 @@
 
 			<v-spacer></v-spacer>
 
-			<v-btn class="hidden-sm-and-down" v-show="!isRootDirectory" :disabled="uiFrozen" @click="showNewFile = true">
-				<v-icon class="mr-1">add</v-icon> New File
+			<v-btn class="hidden-sm-and-down mr-3" v-show="!isRootDirectory" :disabled="uiFrozen" @click="showNewFile = true">
+				<v-icon class="mr-1">mdi-file-plus</v-icon> {{ $t('button.newFile.caption') }}
 			</v-btn>
-			<v-btn class="hidden-sm-and-down" v-show="isRootDirectory" :disabled="uiFrozen" @click="showNewFilament = true">
-				<v-icon class="mr-1">create_new_folder</v-icon> New Filament
+			<v-btn class="hidden-sm-and-down mr-3" v-show="isRootDirectory" :disabled="uiFrozen" @click="showNewFilament = true">
+				<v-icon class="mr-1">mdi-folder-plus</v-icon> {{ $t('button.newFilament.caption') }}
 			</v-btn>
-			<v-btn class="hidden-sm-and-down" color="info" :loading="loading" :disabled="uiFrozen" @click="refresh">
-				<v-icon class="mr-1">refresh</v-icon> Refresh
+			<v-btn class="hidden-sm-and-down mr-3" color="info" :loading="loading" :disabled="uiFrozen" @click="refresh">
+				<v-icon class="mr-1">mdi-refresh</v-icon> {{ $t('button.refresh.caption') }}
 			</v-btn>
 			<upload-btn class="hidden-sm-and-down" target="filaments" color="primary"></upload-btn>
 		</v-toolbar>
 
-		<base-file-list ref="filelist" v-model="selection" :directory.sync="directory" :loading.sync="loading" :doingFileOperation="doingFileOperation" sort-table="filaments" @fileClicked="fileClicked" :no-delete="isRootDirectory" :no-rename="filamentSelected" no-drag-drop>
-			<template slot="no-data">
-				<v-alert :value="true" type="info" class="ma-0" @contextmenu.prevent="">{{ isRootDirectory ? 'No Filaments' : 'No Files' }}</v-alert>
-			</template>
-
-			<template slot="context-menu">
-				<v-list-tile v-show="filamentSelected" @click="downloadFilament">
-					<v-icon class="mr-1">cloud_download</v-icon> Download
-				</v-list-tile>
-				<v-list-tile v-show="filamentSelected" @click="rename">
-					<v-icon class="mr-1">short_text</v-icon> Rename File or Directory
-				</v-list-tile>
-				<v-list-tile @click="remove">
-					<v-icon class="mr-1">delete</v-icon> Delete
-				</v-list-tile>
+		<base-file-list ref="filelist" v-model="selection" :directory.sync="directory" :folder-icon="isRootDirectory ? 'mdi-radiobox-marked' : 'mdi-folder'" :loading.sync="loading" :doingFileOperation="doingFileOperation" sort-table="filaments" @fileClicked="fileClicked" :no-delete="isRootDirectory" :no-rename="filamentSelected" no-drag-drop :no-files-text="isRootDirectory ? 'list.filament.noFilaments' : 'list.baseFileList.noFiles'">
+			<template #context-menu>
+				<v-list-item v-show="filamentSelected" @click="downloadFilament">
+					<v-icon class="mr-1">mdi-cloud-download</v-icon> {{ $t('list.baseFileList.downloadZIP') }}
+				</v-list-item>
+				<v-list-item v-show="filamentSelected" @click="rename">
+					<v-icon class="mr-1">mdi-rename-box</v-icon> {{ $t('list.baseFileList.rename') }}
+				</v-list-item>
+				<v-list-item @click="remove">
+					<v-icon class="mr-1">mdi-delete</v-icon> {{ $t('list.baseFileList.delete') }}
+				</v-list-item>
 			</template>
 		</base-file-list>
 
-		<v-layout class="hidden-md-and-up mt-2" row wrap justify-space-around>
-			<v-btn v-show="!isRootDirectory" :disabled="uiFrozen" @click="showNewFile = true">
-				<v-icon class="mr-1">add</v-icon> New File
-			</v-btn>
-			<v-btn v-show="isRootDirectory" :disabled="uiFrozen" @click="showNewFilament = true">
-				<v-icon class="mr-1">create_new_folder</v-icon> New Filament
-			</v-btn>
-			<v-btn color="info" :loading="loading" :disabled="uiFrozen" @click="refresh">
-				<v-icon class="mr-1">refresh</v-icon> Refresh
-			</v-btn>
-			<upload-btn target="filaments" color="primary"></upload-btn>
-		</v-layout>
+		<v-speed-dial v-model="fab" bottom right fixed direction="top" transition="scale-transition" class="hidden-md-and-up">
+			<template #activator>
+				<v-btn v-model="fab" dark color="primary" fab>
+					<v-icon v-if="fab">mdi-close</v-icon>
+					<v-icon v-else>mdi-dots-vertical</v-icon>
+				</v-btn>
+			</template>
 
-		<new-directory-dialog :shown.sync="showNewFilament" :directory="directory" title="New Filament" prompt="Please enter a name for the new filament" :showSuccess="false" :showError="false" @directoryCreationFailed="directoryCreationFailed" @directoryCreated="createFilamentFiles"></new-directory-dialog>
+			<v-btn v-show="!isRootDirectory" fab :disabled="uiFrozen" @click="showNewFile = true">
+				<v-icon class="mr-1">mdi-file-plus</v-icon>
+			</v-btn>
+
+			<v-btn v-show="isRootDirectory" fab :disabled="uiFrozen" @click="showNewFilament = true">
+				<v-icon>mdi-folder-plus</v-icon>
+			</v-btn>
+
+			<v-btn fab color="info" :loading="loading" :disabled="uiFrozen" @click="refresh">
+				<v-icon>mdi-refresh</v-icon>
+			</v-btn>
+
+			<upload-btn fab dark :directory="directory" target="filaments" color="primary">
+				<v-icon>mdi-cloud-upload</v-icon>
+			</upload-btn>
+		</v-speed-dial>
+
+		<new-directory-dialog :shown.sync="showNewFilament" :directory="directory" :title="$t('dialog.newFilament.title')" :prompt="$t('dialog.newFilament.prompt')" :showSuccess="false" :showError="false" @directoryCreationFailed="directoryCreationFailed" @directoryCreated="createFilamentFiles"></new-directory-dialog>
 		<new-file-dialog :shown.sync="showNewFile" :directory="directory"></new-file-dialog>
 	</div>
 </template>
@@ -61,16 +69,18 @@ import saveAs from 'file-saver'
 
 import { mapState, mapGetters, mapActions } from 'vuex'
 
-import { DisconnectedError, OperationCancelledError } from '../../utils/errors.js'
+import { DisconnectedError, FileNotFoundError, OperationCancelledError } from '../../utils/errors.js'
 import Path from '../../utils/path.js'
 
 export default {
 	computed: {
-		...mapState(['selectedMachine']),
 		...mapGetters(['uiFrozen']),
-		...mapState('machine/model', ['tools']),
-		isRootDirectory() { return this.directory === Path.filaments; },
-		filamentSelected() { return (this.directory === Path.filaments) && (this.selection.length === 1) && this.selection[0].isDirectory; }
+		...mapState('machine/model', {
+			filamentsDirectory: state => state.directories.filaments,
+			tools: state => state.tools
+		}),
+		isRootDirectory() { return Path.equals(this.directory, this.filamentsDirectory); },
+		filamentSelected() { return Path.equals(this.directory, this.filamentsDirectory) && (this.selection.length === 1) && this.selection[0].isDirectory; }
 	},
 	data() {
 		return {
@@ -79,13 +89,14 @@ export default {
 			loading: false,
 			doingFileOperation: false,
 			showNewFile: false,
-			showNewFilament: false
+			showNewFilament: false,
+			fab: false
 		}
 	},
 	methods: {
 		...mapActions('machine', ['sendCode', 'upload', 'download', 'delete', 'getFileList']),
 		directoryCreationFailed(error) {
-			this.$makeNotification('error', 'Failed to create filament', error.message);
+			this.$makeNotification('error', this.$t('notification.newFilament.errorTitle'), error.message);
 		},
 		async createFilamentFiles(path) {
 			if (this.doingFileOperation) {
@@ -94,15 +105,14 @@ export default {
 
 			this.doingFileOperation = true;
 			try {
-				console.log(path);
 				const emptyFile = new Blob();
 				await this.upload({ filename: Path.combine(path, 'load.g'), content: emptyFile, showSuccess: false });
 				await this.upload({ filename: Path.combine(path, 'config.g'), content: emptyFile, showSuccess: false });
 				await this.upload({ filename: Path.combine(path, 'unload.g'), content: emptyFile, showSuccess: false });
-				this.$makeNotification('success', 'Filament created', `Successfully created filament ${Path.extractFileName(path)}`);
+				this.$makeNotification('success', this.$t('notification.newFilament.successTitle'), this.$t('notification.newFilament.successMessage', [Path.extractFileName(path)]));
 			} catch (e) {
 				console.warn(e);
-				this.$makeNotification('error', 'Failed to create filament macros', e.message);
+				this.$makeNotification('error', this.$t('notification.newFilament.errorTitleMacros'), e.message);
 			}
 			this.doingFileOperation = false;
 		},
@@ -112,29 +122,29 @@ export default {
 		async downloadFilament() {
 			const filament = this.selection[0].name;
 
-			let loadG, configG, unloadG;
+			// Download the files first
+			let loadG, unloadG;
 			try {
-				loadG = await this.download({ filename: Path.combine(Path.filaments, filament, 'load.g'), showSuccess: false, showError: false });
+				loadG = await this.download({ filename: Path.combine(Path.filaments, filament, 'load.g'), type: 'blob', showSuccess: false, showError: false });
+				unloadG = await this.download({ filename: Path.combine(Path.filaments, filament, 'unload.g'), type: 'blob', showSuccess: false, showError: false });
 			} catch (e) {
 				if (!(e instanceof DisconnectedError) && !(e instanceof OperationCancelledError)) {
-					this.$makeNotification('error', 'Failed to download load.g', e.message);
+					this.$makeNotification('error', this.$t('notification.download.error', [!loadG ? 'load.g' : 'unload.g']), e.message);
 				}
 				return;
-			}
-			try {
-				unloadG = await this.download({ filename: Path.combine(Path.filaments, filament, 'unload.g'), showSuccess: false, showError: false });
-			} catch (e) {
-				if (!(e instanceof DisconnectedError) && !(e instanceof OperationCancelledError)) {
-					this.$makeNotification('error', 'Failed to download unload.g', e.message);
-				}
-				return;
-			}
-			try {
-				configG = await this.download({ filename: Path.combine(Path.filaments, filament, 'config.g'), showSuccess: false, showError: false });
-			} catch (e) {
-				// config.g may not exist
 			}
 
+			let configG;
+			try {
+				configG = await this.download({ filename: Path.combine(Path.filaments, filament, 'config.g'), type: 'blob', showSuccess: false, showError: false });
+			} catch (e) {
+				// config.g may not exist
+				if (!(e instanceof DisconnectedError) && !(e instanceof OperationCancelledError) && !(e instanceof FileNotFoundError)) {
+					this.$makeNotification('error', this.$t('notification.download.error', ['config.g']), e.message);
+				}
+			}
+
+			// Bundle them in a ZIP file and pass it to the user
 			const zip = new JSZip();
 			zip.file(`${filament}/load.g`, loadG);
 			zip.file(`${filament}/unload.g`, unloadG);
@@ -147,13 +157,13 @@ export default {
 				saveAs(zipBlob, `${filament}.zip`);
 			} catch (e) {
 				console.warn(e);
-				this.$makeNotification('error', 'Failed to compress files', e.message);
+				this.$makeNotification('error', this.$t('notification.compress.errorTitle', ['load.g']), e.message);
 			}
 		},
 		async rename() {
 			const filament = this.selection[0].name;
-			if (this.tools.some(tool => tool.filament === filament)) {
-				this.$makeNotification('error', 'Cannot rename filament', 'This filament is still loaded. Please unload it before you proceed');
+			if (this.tools.some(tool => tool && tool.filament === filament)) {
+				this.$makeNotification('error', this.$t('notification.renameFilament.errorTitle'), this.$t('notification.renameFilament.errorStillLoaded'));
 				return;
 			}
 
@@ -164,8 +174,8 @@ export default {
 				items = this.selection.slice();
 			}
 
-			if (items.some(item => item.isDirectory && this.tools.some(tool => tool.filament === item.name))) {
-				this.$makeNotification('error', 'Could not delete filament', 'At least one of these filaments is still loaded. Please unload them before you proceed');
+			if (items.some(item => item.isDirectory && this.tools.some(tool => tool && tool.filament === item.name))) {
+				this.$makeNotification('error', this.$t('notification.deleteFilament.errorTitle'), this.$t('notification.deleteFilament.errorStillLoaded'));
 				return;
 			}
 
@@ -180,7 +190,7 @@ export default {
 						// Get files from the filament directory
 						const files = await this.getFileList(Path.combine(Path.filaments, items[i].name));
 						if (files.some(item => item.isDirectory)) {
-							this.$makeNotification('error', 'Cannot delete filament', `The filament ${items[i].name} contains sub-directories. Please delete them manually.`);
+							this.$makeNotification('error', this.$t('notification.deleteFilament.errorTitle'), this.$t('notification.deleteFilament.errorSubDirectories', [items[i].name]));
 							break;
 						}
 
@@ -191,11 +201,12 @@ export default {
 					}
 
 					// Delete the item
-					await this.$refs.filelist.remove(items[i]);
+					await this.delete(Path.combine(Path.filaments, items[i].name));
+					await this.refresh();
 				} catch (e) {
 					if (!(e instanceof DisconnectedError)) {
 						console.warn(e);
-						this.$makeNotification('error', 'Could not delete filament', e.message);
+						this.$makeNotification('error', this.$t('notification.deleteFilament.errorTitle'), e.message);
 					}
 					break;
 				}
@@ -206,9 +217,14 @@ export default {
 			this.$refs.filelist.edit(item);
 		}
 	},
+	mounted() {
+		this.directory = this.filamentsDirectory;
+	},
 	watch: {
-		selectedMachine() {
-			this.directory = Path.filaments;
+		filamentsDirectory(to, from) {
+			if (Path.equals(this.directory, from) || !Path.startsWith(this.directory, to)) {
+				this.directory = to;
+			}
 		}
 	}
 }

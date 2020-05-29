@@ -1,8 +1,10 @@
 <template>
-	<v-dialog v-model="shown" persistent width="480">
+	<v-dialog v-model="internalShown" @keydown.escape="dismissed" persistent width="480">
 		<v-card>
 			<v-card-title>
-				<span class="headline">{{ question }}</span>
+				<span class="headline">
+					{{ title }}
+				</span>
 			</v-card-title>
 
 			<v-card-text>
@@ -11,8 +13,8 @@
 
 			<v-card-actions>
 				<v-spacer></v-spacer>
-				<v-btn color="blue darken-1" flat @click="dismissed">{{ $t('generic.no') }}</v-btn>
-				<v-btn color="blue darken-1" flat @click="confirmed">{{ $t('generic.yes') }}</v-btn>
+				<v-btn color="blue darken-1" text @click="dismissed">{{ $t('generic.no') }}</v-btn>
+				<v-btn color="blue darken-1" text @click="confirmed">{{ $t('generic.yes') }}</v-btn>
 			</v-card-actions>
 		</v-card>
 	</v-dialog>
@@ -23,7 +25,7 @@
 
 export default {
 	props: {
-		question: {
+		title: {
 			type: String,
 			required: true
 		},
@@ -34,6 +36,18 @@ export default {
 		shown: {
 			type: Boolean,
 			required: true
+		}
+	},
+	computed: {
+		internalShown: {
+			get() { return this.shown; },
+			set(value) {
+				if (value) {
+					this.confirmed();
+				} else {
+					this.dismissed();
+				}
+			}
 		}
 	},
 	methods: {

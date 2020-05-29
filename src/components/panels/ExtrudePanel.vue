@@ -1,63 +1,57 @@
-<style scoped>
-.v-btn-toggle {
-	display: flex;
-}
-.v-btn-toggle > button {
-	display: flex;
-	flex: 1 1 auto;
-}
-</style>
-
 <template>
 	<v-card>
 		<v-card-title class="pb-0">
-			<v-icon small class="mr-1">opacity</v-icon> Extrusion Control
+			<v-icon small class="mr-1">mdi-opacity</v-icon> {{ $t('panel.extrude.caption') }}
 		</v-card-title>
 
-		<v-layout row class="px-3 py-1" align-center>
-			<v-flex>
-				<v-layout row wrap align-center>
-					<v-flex v-if="currentTool && currentTool.extruders.length > 1" class="ma-1">
-						<p class="mb-1">Mix ratio:</p>
-						<v-btn-toggle v-model="mix" mandatory multiple>
-							<v-btn flat value="mix" :disabled="uiFrozen" color="primary">
-								Mix
-							</v-btn>
-							<v-btn flat v-for="extruder in currentTool.extruders" :key="extruder" :value="extruder" :disabled="uiFrozen" color="primary">
-								{{ `E${extruder}` }}
-							</v-btn>
-						</v-btn-toggle>
-					</v-flex>
-					<v-flex class="ma-1">
-						<p class="mb-1">Feed amount in mm:</p>
-						<v-btn-toggle v-model="amount" mandatory>
-							<v-btn flat v-for="(amount, index) in extruderAmounts" :key="index" :value="amount" :disabled="uiFrozen" color="primary" @contextmenu.prevent="editAmount(index)">
-								{{ amount }}
-							</v-btn>
-						</v-btn-toggle>
-					</v-flex>
-					<v-flex class="ma-1">
-						<p class="mb-1">Feedrate in mm/s:</p>
-						<v-btn-toggle v-model="feedrate" mandatory>
-							<v-btn flat v-for="(feedrate, index) in extruderFeedrates" :key="index" :value="feedrate" :disabled="uiFrozen" color="primary" @contextmenu.prevent="editFeedrate(index)">
-								{{ feedrate }}
-							</v-btn>
-						</v-btn-toggle>
-					</v-flex>
-				</v-layout>
-			</v-flex>
-			<v-flex shrink class="ml-2 mb-1">
-				<v-btn block :disabled="uiFrozen || !canRetract" :loading="busy" @click="buttonClicked(false)">
-					<v-icon>arrow_upward</v-icon> Retract
-				</v-btn>
-				<v-btn block :disabled="uiFrozen || !canExtrude" :loading="busy" @click="buttonClicked(true)">
-					<v-icon>arrow_downward</v-icon> Extrude
-				</v-btn>
-			</v-flex>
-		</v-layout>
+		<v-card-text class="pb-0">
+			<v-row class="pb-1" align="center" justify="center">
+				<v-col v-if="currentTool && currentTool.extruders.length > 1" cols="auto">
+					<p class="mb-1">
+					{{ $t('panel.extrude.mixRatio') }}
+					</p>
+					<v-btn-toggle v-model="mix" mandatory multiple>
+						<v-btn text value="mix" :disabled="uiFrozen" color="primary">
+							{{ $t('panel.extrude.mix') }}
+						</v-btn>
+						<v-btn text v-for="extruder in currentTool.extruders" :key="extruder" :value="extruder" :disabled="uiFrozen" color="primary">
+							{{ `E${extruder}` }}
+						</v-btn>
+					</v-btn-toggle>
+				</v-col>
+				<v-col>
+					<p class="mb-1">
+					{{ $t('panel.extrude.amount', ['mm']) }}
+					</p>
+					<v-btn-toggle v-model="amount" mandatory class="d-flex">
+						<v-btn v-for="(savedAmount, index) in extruderAmounts" :key="index" :value="savedAmount" :disabled="uiFrozen" @contextmenu.prevent="editAmount(index)" class="flex-grow-1">
+							{{ savedAmount }}
+						</v-btn>
+					</v-btn-toggle>
+				</v-col>
+				<v-col>
+					<p class="mb-1">
+					{{ $t('panel.extrude.feedrate', ['mm/s']) }}
+					</p>
+					<v-btn-toggle v-model="feedrate" mandatory class="d-flex">
+						<v-btn v-for="(savedFeedrate, index) in extruderFeedrates" :key="index" :value="savedFeedrate" :disabled="uiFrozen" @contextmenu.prevent="editFeedrate(index)" class="flex-grow-1">
+							{{ savedFeedrate }}
+						</v-btn>
+					</v-btn-toggle>
+				</v-col>
+				<v-col cols="auto" class="flex-shrink-1">
+					<v-btn block tile :disabled="uiFrozen || !canRetract" :loading="busy" @click="buttonClicked(false)">
+						<v-icon>mdi-arrow-up-bold</v-icon> {{ $t('panel.extrude.retract') }}
+					</v-btn>
+					<v-btn block tile :disabled="uiFrozen || !canExtrude" :loading="busy" @click="buttonClicked(true)">
+						<v-icon>mdi-arrow-down-bold</v-icon> {{ $t('panel.extrude.extrude') }}
+					</v-btn>
+				</v-col>
+			</v-row>
+		</v-card-text>
 
-		<input-dialog :shown.sync="editAmountDialog.shown" title="Edit extrusion amount" prompt="Please enter a new value for the clicked button:" :preset="editAmountDialog.preset" is-numeric-value @confirmed="setAmount"></input-dialog>
-		<input-dialog :shown.sync="editFeedrateDialog.shown" title="Edit extrusion feedrate" prompt="Please enter a new value for the clicked button:" :preset="editFeedrateDialog.preset" is-numeric-value @confirmed="setFeedrate"></input-dialog>
+		<input-dialog :shown.sync="editAmountDialog.shown" :title="$t('dialog.editExtrusionAmount.title')" :prompt="$t('dialog.editExtrusionAmount.prompt')" :preset="editAmountDialog.preset" is-numeric-value @confirmed="setAmount"></input-dialog>
+		<input-dialog :shown.sync="editFeedrateDialog.shown" :title="$t('dialog.editExtrusionFeedrate.title')" :prompt="$t('dialog.editExtrusionFeedrate.prompt')" :preset="editFeedrateDialog.preset" is-numeric-value @confirmed="setFeedrate"></input-dialog>
 	</v-card>
 </template>
 
@@ -69,29 +63,41 @@ import { mapState, mapGetters, mapActions, mapMutations } from 'vuex'
 export default {
 	computed: {
 		...mapGetters(['uiFrozen']),
-		...mapState('machine/model', ['heat', 'tools']),
+		...mapState('machine/model', ['heat', 'sensors']),
 		...mapGetters('machine/model', ['currentTool']),
 		...mapState('machine/settings', ['extruderAmounts', 'extruderFeedrates']),
 		canExtrude() {
-			if (this.currentTool && this.currentTool.heaters.length) {
-				const selectedHeaters = (this.mixValue[0] === 'mix') ? this.currentTool.heaters : this.mixValue;
-				const heaters = this.heat.heaters, minTemp = this.heat.coldExtrudeTemperature;
-				return !selectedHeaters.some(heater => heaters[heater].current < minTemp);
+			if (this.currentTool && this.currentTool.extruders.length > 0) {
+				return !this.currentTool.heaters.some(heaterNumber => {
+					if (heaterNumber >= 0 && heaterNumber < this.heat.heaters.length) {
+						const heaterSensor = this.heat.heaters[heaterNumber].sensor;
+						if (heaterSensor >= 0 && heaterSensor < this.sensors.analog.length) {
+							const sensor = this.sensors.analog[heaterSensor];
+							return !sensor || sensor.lastReading < this.heat.coldExtrudeTemperature;
+						}
+					}
+					return true;
+				}, this);
 			}
 			return false;
 		},
 		canRetract() {
-			if (this.currentTool && this.currentTool.heaters.length) {
-				const selectedHeaters = (this.mixValue[0] === 'mix') ? this.currentTool.heaters : this.mixValue;
-				const heaters = this.heat.heaters, minTemp = this.heat.coldRetractTemperature;
-				return !selectedHeaters.some(heater => heaters[heater].current < minTemp);
+			if (this.currentTool && this.currentTool.extruders.length > 0) {
+				return !this.currentTool.heaters.some(heaterNumber => {
+					if (heaterNumber >= 0 && heaterNumber < this.heat.heaters.length) {
+						const heaterSensor = this.heat.heaters[heaterNumber].sensor;
+						if (heaterSensor >= 0 && heaterSensor < this.sensors.analog.length) {
+							const sensor = this.sensors.analog[heaterSensor];
+							return !sensor || sensor.lastReading < this.heat.coldRetractTemperature;
+						}
+					}
+					return true;
+				}, this);
 			}
 			return false;
 		},
 		mix: {
-			get() {
-				return this.mixValue;
-			},
+			get() { return this.mixValue; },
 			set(value) {
 				if (value.length > 1) {
 					if (this.mixValue.indexOf('mix') !== value.indexOf('mix')) {
@@ -116,8 +122,8 @@ export default {
 		return {
 			busy: false,
 			mixValue: ['mix'],
-			amount: 0,
-			feedrate: 0,
+			amount: 10,
+			feedrate: 5,
 			editAmountDialog: {
 				shown: false,
 				index: 0,
@@ -139,7 +145,7 @@ export default {
 			}
 
 			let amounts;
-			if (this.mix.length === 1 && this.mix[0] === 'mix') {
+			if (this.mixValue[0] === 'mix') {
 				// Split total amount to extrude evenly
 				amounts = [this.amount];
 			} else {
@@ -149,9 +155,8 @@ export default {
 
 			this.busy = true;
 			try {
-				const amount = amounts.map(amount => extrude ? amount : -amount).reduce((a, b) => `${a}:${b}`);
-				// TODO let users decide if they want to send M400 as well so this call blocks until the extrusion is complete
-				await this.sendCode(`G1 E${amount} F${this.feedrate * 60}`);
+				const amount = amounts.map(amount => extrude ? amount : -amount).join(':');
+				await this.sendCode(`M120\nM83\nG1 E${amount} F${this.feedrate * 60}\nM121`);
 			} catch (e) {
 				// handled before we get here
 			}
@@ -177,8 +182,8 @@ export default {
 		}
 	},
 	mounted() {
-		this.amount = this.extruderAmounts[0];
-		this.feedrate = this.extruderFeedrates[0];
+		this.amount = this.extruderAmounts[3];
+		this.feedrate = this.extruderFeedrates[3];
 	},
 	watch: {
 		currentTool(to) {
@@ -188,10 +193,10 @@ export default {
 			}
 		},
 		extruderAmounts() {
-			this.amount = this.extruderAmounts[0];
+			this.amount = this.extruderAmounts[3];
 		},
 		extruderFeedrates() {
-			this.feedrate = this.extruderFeedrates[0];
+			this.feedrate = this.extruderFeedrates[3];
 		}
 	}
 }

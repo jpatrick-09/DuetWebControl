@@ -1,7 +1,8 @@
 'use strict'
 
-import { isNumber } from '../utils/numbers.js'
 import i18n from '../i18n'
+import { isNumber } from '../utils/numbers.js'
+import { MachineMode } from '../store/machine/modelEnums.js'
 
 let store
 
@@ -11,13 +12,13 @@ export function display(value, precision, unit) {
 	}
 	if (value instanceof Array && value.length > 0) {
 		return value.map(item => (item !== undefined) ? item.toFixed((precision !== undefined) ? precision : 0) + (unit ? (' ' + unit) : '')
-			: i18n.t('generic.novalue')).reduce((a, b) => a + ', ' + b);
+			: i18n.t('generic.noValue')).join(', ');
 	}
-	return (value && value.constructor === String) ? value : i18n.t('generic.novalue');
+	return (value && value.constructor === String) ? value : i18n.t('generic.noValue');
 }
 
 export function displayZ(value, showUnit = true) {
-	return display(value, (store.state.machine.model.state.mode === 'CNC') ? 3 : 2, showUnit ? 'mm' : undefined);
+	return display(value, (store.state.machine.model.state.machineMode === MachineMode.cnc) ? 3 : 2, showUnit ? 'mm' : undefined);
 }
 
 export function displaySize(bytes) {
@@ -71,8 +72,8 @@ export function displaySpeed(bytesPerSecond) {
 }
 
 export function displayTime(value, showTrailingZeroes = false) {
-	if (isNaN(value)) {
-		return i18n.t('generic.novalue');
+	if (value === null || isNaN(value)) {
+		return i18n.t('generic.noValue');
 	}
 
 	value = Math.round(value);
@@ -98,7 +99,7 @@ export function displayTime(value, showTrailingZeroes = false) {
 	value = value.toFixed(0);
 	timeLeft.push(((value > 9 || !showTrailingZeroes) ? value : "0" + value) + "s");
 
-	return timeLeft.reduce(function(a, b) { return `${a} ${b}`; });
+	return timeLeft.join(' ');
 }
 
 export default {

@@ -1,7 +1,7 @@
 'use strict'
 
 import { setLocalSetting, getLocalSetting, removeLocalSetting } from '../../utils/localStorage.js'
-import merge from '../../utils/merge.js'
+import patch from '../../utils/patch.js'
 import Path from '../../utils/path.js'
 
 export default function(hostname) {
@@ -13,6 +13,10 @@ export default function(hostname) {
 			updateInterval: 250,
 			extendedUpdateEvery: 20,
 			fileTransferRetryThreshold: 358400,			// 350 KiB
+			crcUploads: true,
+
+			// REST Connector
+			pingInterval: 2000,							// ms
 
 			// UI
 			babystepAmount: 0.05,						// mm
@@ -44,7 +48,7 @@ export default function(hostname) {
 		},
 		getters: {
 			moveSteps: state => function(axis) {
-				return state.moveSteps.hasOwnProperty(axis) ? state.moveSteps[axis] : state.moveSteps.default;
+				return (state.moveSteps[axis] !== undefined) ? state.moveSteps[axis] : state.moveSteps.default;
 			},
 			numMoveSteps: state => state.moveSteps.default.length
 		},
@@ -88,9 +92,12 @@ export default function(hostname) {
 			}
 		},
 		mutations: {
-			load: (state, payload) => merge(state, payload, true),
+			load: (state, payload) => patch(state, payload, true),
 
-			addCode: (state, code) => state.codes.push(code),
+			addCode(state, code) {
+				state.codes.push(code);
+				state.codes.sort();
+			},
 			removeCode: (state, code) => state.codes = state.codes.filter(item => item !== code),
 
 			setExtrusionAmount(state, { index, value }) {
@@ -100,12 +107,12 @@ export default function(hostname) {
 				state.extruderFeedrates[index] = value;
 			},
 			setMoveStep(state, { axis, index, value }) {
-				if (!state.moveSteps.hasOwnProperty(axis)) {
+				if (state.moveSteps[axis] === undefined) {
 					state.moveSteps[axis] = state.moveSteps.default.slice();
 				}
 				state.moveSteps[axis][index] = value;
 			},
-			toggleExtraHeaterVisibility(state, extraHeater) {
+			toggleExtraVisibility(state, extraHeater) {
 				if (state.displayedExtraTemperatures.indexOf(extraHeater) === -1) {
 					state.displayedExtraTemperatures.push(extraHeater);
 				} else {
@@ -126,7 +133,7 @@ export default function(hostname) {
 					state.displayedFans = state.displayedFans.filter(item => item !== fan);
 				}
 			},
-			update: (state, payload) => merge(state, payload, true)
+			update: (state, payload) => patch(state, payload, true)
 		}
 	}
 }

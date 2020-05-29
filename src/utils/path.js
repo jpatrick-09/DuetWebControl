@@ -3,62 +3,121 @@
 export function combine() {
 	let result = '';
 	Array.from(arguments).forEach(function(arg) {
-		if (result !== '') {
-			result += '/';
-		}
-
-		if (arg.endsWith('/')) {
-			result += arg.substr(0, arg.length - 1);
+		if (arg.startsWith('/') || /(\d)+:.*/.test(arg)) {
+			if (arg.endsWith('/')) {
+				result = arg.substring(0, arg.length - 1);
+			} else {
+				result = arg;
+			}
 		} else {
-			result += arg;
+			if (result !== '') {
+				result += '/';
+			}
+			if (arg.endsWith('/')) {
+				result += arg.substring(0, arg.length - 1);
+			} else {
+				result += arg;
+			}
 		}
 	});
 	return result;
 }
 
-export function extractFileName(path) {
-	if (path.indexOf('/') !== -1) {
-		const items = path.split('/');
-		return items[items.length - 1];
-	}
-	if (path.indexOf('\\') !== -1) {
-		const items = path.split('\\');
-		return items[items.length - 1];
-	}
-	return path;
-}
-
-export function extractFilePath(path) {
-	if (path.indexOf('/') !== -1) {
-		const items = path.split('/');
-		items.pop();
-		return items.length ? items.reduce((a, b) => `${a}/${b}`) : '';
-	}
-	if (path.indexOf('\\') !== -1) {
-		const items = path.split('\\');
-		items.pop();
-		return items.length ? items.reduce((a, b) => `${a}\\${b}`) : '';
-	}
-	return path;
-}
-
-export function pathAffectsFilelist(path, directory, filelist) {
-	if (!path || !directory || !filelist || path.length < directory.length) {
-		return false;
-	}
-
-	if (path === directory) {
-		return true;
-	}
-
-	if (path.startsWith(directory)) {
-		const subPath = path.substr(directory.length + (directory.endsWith('/') ? 0 : 1));
-		if (subPath === '' || filelist.some(file => subPath === file.name)) {
-			return true;
+export function equals(a, b) {
+	if (a && b) {
+		if (a.startsWith('/')) {
+			a = '0:' + a;
 		}
-		return !filelist.some(file => file.isDirectory && subPath.startsWith(file.name + '/'));
+		if (a.endsWith('/')) {
+			a = a.substring(0, a.length - 1);
+		}
+		if (b.startsWith('/')) {
+			b = '0:' + b;
+		}
+		if (b.endsWith('/')) {
+			b = b.substring(0, b.length - 1);
+		}
+	}
+	return a === b;
+}
+
+export function extractDirectory(path) {
+	if (!path) {
+		return path;
+	}
+	if (path.indexOf('/') !== -1) {
+		const items = path.split('/');
+		items.pop();
+		return items.join('/');
+	}
+	if (path.indexOf('\\') !== -1) {
+		const items = path.split('\\');
+		items.pop();
+		return items.join('\\');
+	}
+	return path;
+}
+
+export function extractFileName(path) {
+	if (!path) {
+		return path;
+	}
+	if (path.indexOf('/') !== -1) {
+		const items = path.split('/');
+		return items[items.length - 1];
+	}
+	if (path.indexOf('\\') !== -1) {
+		const items = path.split('\\');
+		return items[items.length - 1];
+	}
+	return path;
+}
+
+export function getVolume(path) {
+	if (path) {
+		const matches = /(\d+).*/.exec(path);
+		if (matches) {
+			return parseInt(matches[1]);
+		}
+	}
+	return 0;
+}
+
+export function startsWith(a, b) {
+	if (a && b) {
+		if (a.startsWith('/')) {
+			a = '0:' + a;
+		}
+		if (a.endsWith('/')) {
+			a = a.substring(0, a.length - 1);
+		}
+		if (b.startsWith('/')) {
+			b = '0:' + b;
+		}
+		if (b.endsWith('/')) {
+			b = b.substring(0, b.length - 1);
+		}
+		return a.startsWith(b);
 	}
 	return false;
+}
+
+export function isGCodePath(path, gcodesDir) {
+	path = path.toLowerCase();
+	return (startsWith(path, pathObj.firmware) || startsWith(path, gcodesDir) ||
+			path.endsWith('.g') || path.endsWith('.gcode') || path.endsWith('.gc') || path.endsWith('.gco') ||
+			path.endsWith('.nc') || path.endsWith('.ngc') || path.endsWith('.tap'));
+}
+
+export function isSdPath(path) {
+	return (startsWith(path, pathObj.filaments) ||
+			startsWith(path, pathObj.firmware) ||
+			startsWith(path, pathObj.gCodes) ||
+			startsWith(path, pathObj.macros) ||
+			startsWith(path, pathObj.menu) ||
+			startsWith(path, pathObj.scans) ||
+			startsWith(path, pathObj.system) ||
+			startsWith(path, pathObj.web));
 }
 
 export function stripMacroFilename(filename) {
@@ -79,25 +138,34 @@ export function stripMacroFilename(filename) {
 	return label;
 }
 
-export default {
-	display: '0:/menu',
-	gcodes: '0:/gcodes',
-	macros: '0:/macros',
+const pathObj = {
 	filaments: '0:/filaments',
-	sys: '0:/sys',
-	www: '0:/www',
+	firmware: '0:/sys',
+	gCodes: '0:/gcodes',
+	macros: '0:/macros',
+	menu: '0:/menu',
+	scans: '0:/scans',
+	system: '0:/sys',
+	web: '0:/www',
 
-	configFile: '0:/sys/config.g',
-	configBackupFile: '0:/sys/config.g.bak',
 	dwcCacheFile: '0:/sys/dwc2cache.json',
 	dwcFactoryDefaults: '0:/sys/dwc2defaults.json',
 	dwcSettingsFile: '0:/sys/dwc2settings.json',
-	heightmap: '0:/sys/heightmap.csv',
+
+	configFile: 'config.g',
+	configBackupFile: 'config.g.bak',
+	heightmapFile: 'heightmap.csv',
 
 	combine,
+	equals,
+	extractDirectory,
 	extractFileName,
-	extractFilePath,
+	getVolume,
+	startsWith,
 
-	pathAffectsFilelist,
+	isGCodePath,
+	isSdPath,
 	stripMacroFilename
 }
+
+export default pathObj

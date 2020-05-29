@@ -1,159 +1,204 @@
-// Polling connector for old-style status updates
+// Polling connector for RepRapFirmware
 'use strict'
 
-import axios from 'axios'
+import crc32 from 'turbo-crc32/crc32'
 
-import BaseConnector from './BaseConnector.js'
+import BaseConnector, { defaultRequestTimeout } from './BaseConnector.js'
+import { getBoardDefinition } from '../boards.js'
+import { DefaultMachineModel } from '../model.js'
+import { HeaterState, StatusType, isPaused, isPrinting } from '../modelEnums.js'
+import { BeepRequest, MessageBox, ParsedFileInfo } from '../modelItems.js'
 
 import {
-	CORSError, DisconnectedError, TimeoutError, OperationCancelledError, OperationFailedError,
+	NetworkError, DisconnectedError, TimeoutError, OperationCancelledError, OperationFailedError,
 	DirectoryNotFoundError, FileNotFoundError, DriveUnmountedError,
 	LoginError, InvalidPasswordError, NoFreeSessionError,
 	CodeResponseError, CodeBufferError
 } from '../../../utils/errors.js'
-import { quickMerge } from '../../../utils/merge.js'
+import { arraySizesDiffer, quickPatch } from '../../../utils/patch.js'
 import { bitmapToArray } from '../../../utils/numbers.js'
 import { strToTime, timeToStr } from '../../../utils/time.js'
 
 export default class PollConnector extends BaseConnector {
 	static async connect(hostname, username, password) {
-		let response;
-		try {
-			response = await axios.get(`http://${hostname}/rr_connect`, {
-				params: {
-					password,
-					time: timeToStr(new Date())
-				}
-			});
-		} catch (e) {
-			if (e.response) {
-				throw e;
-			}
-			throw new CORSError();
-		}
+		const response = await BaseConnector.request('GET', `${location.protocol}//${hostname}/rr_connect`, {
+			password,
+			time: timeToStr(new Date())
+		});
 
-		switch (response.data.err) {
-			case 0: return new PollConnector(hostname, password, response.data);
+		switch (response.err) {
+			case 0:
+				if (!window.forceLegacyConnect && response.apiLevel > 0) {
+					// Don't hide the connection dialog while the full model is being loaded...
+					BaseConnector.setConnectingProgress(0);
+				}
+				return new PollConnector(hostname, password, response);
 			case 1: throw new InvalidPasswordError();
 			case 2: throw new NoFreeSessionError();
-			default: throw new LoginError(`Unknown err value: ${response.data.err}`)
+			default: throw new LoginError(`Unknown err value: ${response.err}`)
 		}
 	}
 
-	axios = null
-	cancelSource = BaseConnector.getCancelSource()
-
+	sessionTimeout = 8000		// ms
 	justConnected = true
-	isReconnecting = false
 	name = null
 	password = null
 	boardType = null
-	sessionTimeout = null
+	apiLevel = 0
 
-	updateLoopTimer = null
-	updateLoopCounter = 1
-	lastStatusResponse = { seq: 0 }
+	requestBase = ''
+	requestTimeout = defaultRequestTimeout
+	requests = []
 
-	pendingCodes = []
-	fileTransfers = []
-	layers = []
-	printStats = undefined
-	messageBoxShown = false;
+	request(method, url, params = null, responseType = 'json', body = null, onProgress = null, timeout = this.requestTimeout, cancellationToken = null, filename = 'n/a', retry = 0) {
+		let internalURL = this.requestBase + url;
+		if (params) {
+			let hadParam = false;
+			for (let key in params) {
+				internalURL += (hadParam ? '&' : '?') + key + '=' + encodeURIComponent(params[key]);
+				hadParam = true;
+			}
+		}
 
-	constructor(hostname, password, responseData) {
-		super(hostname);
-		this.password = password;
-		this.boardType = responseData.boardType;
-		this.sessionTimeout = responseData.sessionTimeout;
+		const xhr = new XMLHttpRequest();
+		xhr.open(method, internalURL);
+		if (responseType === 'json') {
+			xhr.responseType = 'text';
+			xhr.setRequestHeader('Content-Type', 'application/json');
+		} else {
+			xhr.responseType = responseType;
+		}
+		if (onProgress) {
+			xhr.onprogress = function(e) {
+				if (e.loaded && e.total) {
+					onProgress(e.loaded, e.total);
+				}
+			}
+			xhr.upload.onprogress = xhr.onprogress;
+		}
+		xhr.timeout = timeout;
+		if (cancellationToken) {
+			cancellationToken.cancel = () => xhr.abort();
+		}
+		this.requests.push(xhr);
 
-		this.axios = axios.create({
-			baseURL: `http://${hostname}/`,
-			cancelToken: this.cancelSource.token,
-			timeout: 8000	// default session timeout in RepRapFirmware
+		const maxRetries = this.settings.ajaxRetries, that = this;
+		return new Promise((resolve, reject) => {
+			xhr.onload = function() {
+				that.requests = that.requests.filter(request => request !== xhr);
+				if (xhr.status >= 200 && xhr.status < 300) {
+					if (responseType === 'json') {
+						try {
+							if (!xhr.responseText) {
+								resolve(null);
+							} else {
+								resolve(JSON.parse(xhr.responseText));
+							}
+						} catch (e) {
+							reject(e);
+						}
+					} else {
+						resolve(xhr.response);
+					}
+				} else if (xhr.status === 401) {
+					// User might have closed another tab or the firmware restarted, which can cause
+					// the current session to be terminated. Try to send another rr_connect request
+					// with the last-known password and retry the pending request if that succeeds
+					BaseConnector.request('GET', `${location.protocol}//${that.hostname}/rr_connect`, {
+							password: that.password,
+							time: timeToStr(new Date())
+						})
+						.then(function(result) {
+							if (result instanceof Object && result.err === 0) {
+								that.request(method, url, params, responseType, body, onProgress, timeout, cancellationToken, filename)
+									.then(result => resolve(result))
+									.catch(error => reject(error));
+							} else {
+								reject(new InvalidPasswordError());
+							}
+						})
+						.catch(error => reject(error));
+				} else if (xhr.status === 404) {
+					reject(new FileNotFoundError(filename));
+				} else if (xhr.status === 503) {
+					if (retry < maxRetries) {
+						// RRF may have run out of output buffers. We usually get here when a code reply is blocking
+						if (retry === 0) {
+							that.lastSeq++;
+							that.getGCodeReply(that.lastSeq)
+								.then(function() {
+									// Retry the original request when the code reply has been received
+									that.request(method, url, params, responseType, body, onProgress, timeout, cancellationToken, filename, retry + 1)
+										.then(result => resolve(result))
+										.catch(error => reject(error));
+								})
+								.catch(error => reject(error));
+						} else {
+							// Retry the original request after a while
+							setTimeout(function() {
+								that.request(method, url, params, responseType, body, onProgress, timeout, cancellationToken, filename, retry + 1)
+									.then(result => resolve(result))
+									.catch(error => reject(error));
+							}, 2000);
+						}
+					} else {
+						reject(new OperationFailedError(xhr.responseText || xhr.statusText));
+					}
+				} else if (xhr.status >= 500) {
+					reject(new OperationFailedError(xhr.responseText || xhr.statusText));
+				} else if (xhr.status !== 0) {
+					reject(new OperationFailedError());
+				}
+			};
+			xhr.onabort = function() {
+				that.requests = that.requests.filter(request => request !== xhr);
+				reject(that.updateLoopTimer ? new OperationCancelledError() : new DisconnectedError());
+			}
+			xhr.onerror = function() {
+				that.requests = that.requests.filter(request => request !== xhr);
+				if (retry < maxRetries) {
+					// Unreliable connection, retry if possible
+					that.request(method, url, params, responseType, body, onProgress, timeout, cancellationToken, filename, retry + 1)
+						.then(result => resolve(result))
+						.catch(error => reject(error));
+				} else {
+					reject(new NetworkError());
+				}
+			};
+			xhr.ontimeout = function () {
+				that.requests = that.requests.filter(request => request !== xhr);
+				if (retry < maxRetries) {
+					// Request has timed out, retry if possible
+					that.request(method, url, params, responseType, body, onProgress, timeout, cancellationToken, filename, retry + 1)
+						.then(result => resolve(result))
+						.catch(error => reject(error));
+				} else {
+					reject(new TimeoutError());
+				}
+			};
+			xhr.send(body);
 		});
 	}
 
-	async reconnect() {
-		// Cancel pending requests
-		this.cancelSource.cancel(new DisconnectedError());
-		this.fileTransfers.forEach(transfer => transfer.cancel(new DisconnectedError()));
-		this.fileTransfers = [];
+	cancelRequests() {
 		this.pendingCodes.forEach(code => code.reject(new DisconnectedError()));
 		this.pendingCodes = [];
+		this.requests.forEach(request => request.abort());
+		this.requests = [];
+	}
 
-		// Attempt to reconnect
-		try {
-			const response = await axios.get(`http://${this.hostname}/rr_connect`, {
-				params: {
-					password: this.password,
-					time: timeToStr(new Date())
-				},
-				timeout: 2000
-			});
-
-			switch (response.data.err) {
-				case 0:
-					this.justConnected = true;
-					this.boardType = response.data.boardType;
-					this.sessionTimeout = response.data.sessionTimeout;
-					this.cancelSource = BaseConnector.getCancelSource()
-					this.axios.defaults.cancelToken = this.cancelSource.token;
-					this.axios.defaults.timeout = response.data.sessionTimeout / (this.settings.ajaxRetries + 1)
-					this.scheduleUpdate();
-					break;
-				case 1:
-					this.dispatch('onConnectionError', new InvalidPasswordError());
-					break;
-				case 2:
-					this.dispatch('onConnectionError', new NoFreeSessionError());
-					break;
-				default:
-					this.dispatch('onConnectionError', new LoginError(`Unknown err value: ${response.data.err}`))
-					break;
-			}
-		} catch (e) {
-			const that = this;
-			setTimeout(async function() {
-				await that.reconnect();
-			}, 1000);
-		}
+	constructor(hostname, password, responseData) {
+		super('poll', hostname);
+		this.password = password;
+		this.boardType = responseData.boardType;
+		this.requestBase = `${location.protocol}//${hostname}/`;
+		this.sessionTimeout = responseData.sessionTimeout;
+		this.apiLevel = responseData.apiLevel || 0;
 	}
 
 	register(module) {
 		super.register(module);
-
-		// Apply axios defaults
-		const that = this;
-		this.axios.defaults.timeout = this.sessionTimeout / (this.settings.ajaxRetries + 1)
-		this.axios.interceptors.response.use(null, error => {
-			if (axios.isCancel(error)) {
-				return Promise.reject(error || new OperationCancelledError());
-			}
-
-			if (error.response && error.response.status === 404) {
-				return Promise.reject(new FileNotFoundError(error.config && error.config.filename));
-			}
-
-			if (!that.isReconnecting && error.config && (!error.config.isFileTransfer || error.config.data.byteLength <= this.settings.fileTransferRetryThreshold)) {
-				if (!error.config.retry) {
-					error.config.retry = 0;
-				}
-
-				if (error.config.retry < this.settings.ajaxRetries) {
-					error.config.retry++;
-					return this.axios.request(error.config);
-				}
-			}
-
-			if (error.response) {
-				if (error.message && error.message.startsWith('timeout')) {
-					return Promise.reject(new TimeoutError());
-				}
-				return Promise.reject(error);
-			}
-
-			return Promise.reject(new CORSError());
-		});
+		this.requestTimeout = this.sessionTimeout / (this.settings.ajaxRetries + 1)
 
 		// Ideally we should be using a ServiceWorker here which would allow us to send push
 		// notifications even while DWC2 is running in the background. However, we cannot do
@@ -163,416 +208,479 @@ export default class PollConnector extends BaseConnector {
 		this.scheduleUpdate();
 	}
 
+	async reconnect() {
+		// Cancel pending requests and reset the last 'seq' field
+		// so that the last G-code reply is queried again
+		this.cancelRequests();
+		this.lastStatusResponse = {};
+		this.lastSeq = 0;
+		this.lastSeqs = {}
+		this.lastUptime = 0
+
+		// Attempt to reconnect
+		const response = await BaseConnector.request('GET', `${location.protocol}//${this.hostname}/rr_connect`, {
+			password: this.password,
+			time: timeToStr(new Date())
+		});
+
+		switch (response.err) {
+			case 0:
+				this.justConnected = true;
+				this.boardType = response.boardType;
+				this.sessionTimeout = response.sessionTimeout;
+				this.requestTimeout = response.sessionTimeout / (this.settings.ajaxRetries + 1);
+				this.apiLevel = response.apiLevel || 0;
+				this.scheduleUpdate();
+				break;
+			case 1:
+				// Bad password
+				throw new InvalidPasswordError();
+			case 2:
+				// No free session available
+				throw new NoFreeSessionError();
+			default:
+				// Generic login error
+				throw new LoginError(`Unknown err value: ${response.err}`);
+		}
+	}
+
 	async disconnect() {
-		await this.axios.get('rr_disconnect');
+		await this.request('GET', 'rr_disconnect');
 	}
 
 	unregister() {
+		this.cancelRequests();
 		if (this.updateLoopTimer) {
 			clearTimeout(this.updateLoopTimer);
 			this.updateLoopTimer = null;
 		}
-
-		this.cancelSource.cancel(new DisconnectedError());
-		this.fileTransfers.forEach(transfer => transfer.cancel(new DisconnectedError()));
-		this.pendingCodes.forEach(code => code.reject(new DisconnectedError()));
-
 		super.unregister();
 	}
 
-	arraySizesDiffer(a, b) {
-		if (a instanceof Array) {
-			if (a.length !== b.length) {
-				return true;
-			}
+	updateLoopTimer = null
+	updateLoopCounter = 1
+	lastStatusResponse = {}
+	lastSeq = 0
 
-			for (let i = 0; i < a.length; i++) {
-				if (a[i] instanceof Object && b[i] instanceof Object) {
-					if (this.arraySizesDiffer(a[i], b[i])) {
-						return true;
-					}
-				}
-			}
-		} else if (a instanceof Object) {
-			for (let key in a) {
-				if (a[key] instanceof Object && b[key] instanceof Object) {
-					if (this.arraySizesDiffer(a[key], b[key])) {
-						return true;
-					}
-				}
-			}
-		}
-		return false;
-	}
+	pendingCodes = []
+	layers = []
+	currentFileInfo = new ParsedFileInfo()
+	printStats = {}
+	probeType = 0
+	numExtruders = 0
 
-	async updateLoop(requestExtendedStatus = false) {
+	async updateLoopStatus(requestExtendedStatus = false) {
+		requestExtendedStatus |= this.justConnected ||
+			(this.updateLoopCounter % this.settings.extendedUpdateEvery) === 0 ||
+			(this.verbose && (this.updateLoopCounter % 2) === 0);
+
 		// Decide which type of status update to poll and request it
 		const wasPrinting = ['D', 'S', 'R', 'P', 'M'].indexOf(this.lastStatusResponse.status) !== -1;
-		const statusType =
-			requestExtendedStatus ||
-			this.justConnected ||
-			(this.updateLoopCounter % this.settings.extendedUpdateEvery) === 0 ||
-			(this.verbose && (this.updateLoopCounter % 2) === 0) ? 2 : (wasPrinting ? 3 : 1);
-		const response = await this.axios.get(`rr_status?type=${statusType}`);
-		const isPrinting = ['D', 'S', 'R', 'P', 'M'].indexOf(response.data.status) !== -1;
+		const wasSimulating = this.lastStatusResponse.status === 'M', wasPaused = this.lastStatusResponse.status === 'P';
+		const statusType = requestExtendedStatus ? 2 : (wasPrinting ? 3 : 1);
+		const response = await this.request('GET', 'rr_status', { type: statusType });
+		const isPrinting = ['D', 'S', 'R', 'P', 'M'].indexOf(response.status) !== -1;
+		const newData = {};
 
 		// Check if an extended status response needs to be polled in case machine parameters have changed
-		if (statusType !== 2 && this.arraySizesDiffer(response.data, this.lastStatusResponse)) {
-			await this.updateLoop(true);
+		if (!requestExtendedStatus && arraySizesDiffer(response, this.lastStatusResponse)) {
+			await this.updateLoopStatus(true);
 			return;
 		}
 
+		// Retrieve job file information if a print has started or set info about the last job if it has finished
+		if (isPrinting) {
+			if (this.justConnected || !wasPrinting) {
+				this.currentFileInfo = await this.getFileInfo();
+				delete this.currentFileInfo.printDuration;
+
+				quickPatch(newData, {
+					job: {
+						file: this.currentFileInfo,
+						layers: []
+					}
+				});
+
+				this.layers = [];
+				this.printStats = {
+					layerHeight: this.currentFileInfo.layerHeight
+				};
+			}
+		} else if (wasPrinting) {
+			quickPatch(newData, {
+				job: {
+					lastFileName: this.currentFileInfo.fileName,
+					lastFileCancelled: wasPaused,
+					lastFileSimulated: wasSimulating
+				}
+			});
+		}
+
 		// Standard Status Response
-		const fanRPMs = (response.data.sensors.fanRPM instanceof Array) ? response.data.sensors.fanRPM : [response.data.sensors.fanRPM];
-		const newData = {
-			fans: response.data.params.fanPercent.map((fanPercent, index) => ({
-				rpm: (index < fanRPMs.length) ? fanRPMs[index] : undefined,
+		const fanRPMs = (response.sensors.fanRPM instanceof Array) ? response.sensors.fanRPM : [response.sensors.fanRPM];
+		quickPatch(newData, {
+			fans: response.params.fanPercent.map((fanPercent, index) => ({
+				rpm: (index < fanRPMs.length) ? fanRPMs[index] : -1,
 				value: fanPercent / 100
 			})),
 			heat: {
-				beds: [
-					response.data.temps.bed ? {
-						active: [response.data.temps.bed.active],
-						standby: (response.data.temps.bed.standby === undefined) ? [] : [response.data.temps.bed.standby]
-					} : null
-				],
-				chambers: (response.data.temps.chamber || response.data.temps.cabinet) ? [
-					response.data.temps.chamber ? {
-						active: [response.data.temps.chamber.active],
-						standby: (response.data.temps.chamber.standby === undefined) ? [] : [response.data.temps.chamber.standby]
-					} : null,
-					response.data.temps.cabinet ? {
-						active: [response.data.temps.cabinet.active],
-						standby: (response.data.temps.cabinet.standby === undefined) ? [] : [response.data.temps.cabinet.standby]
-					} : null
-				] : [],
-				extra: response.data.temps.extra.map((extraHeater) => ({
-					current: extraHeater.temp,
-					name: extraHeater.name
-				})),
-				heaters: response.data.temps.current.map((current, heater) => ({
-					current,
-					state: response.data.temps.state[heater]
-				}))
+				heaters: response.temps.state.map((state, sensor) => ({ state: this.convertHeaterState(state), sensor }), this)
 			},
 			move: {
-				axes: response.data.coords.machine.map((machinePosition, drive) => ({
-					homed: !!response.data.coords.axesHomed[drive],
-					machinePosition
+				axes: response.coords.xyz.map((position, drive) => ({
+					drives: [drive],
+					homed: Boolean(response.coords.axesHomed[drive]),
+					machinePosition: (position === 9999) ? null : position,
+					userPosition: (position === 9999) ? null : position
 				})),
-				babystepZ: response.data.params.babystep,
 				currentMove: {
-					requestedSpeed: response.data.speeds.requested,
-					topSpeed: response.data.speeds.top
+					requestedSpeed: (response.speeds !== undefined) ? response.speeds.requested : null,
+					topSpeed: (response.speeds !== undefined) ? response.speeds.top : null
 				},
-				drives: [].concat(response.data.coords.xyz, response.data.coords.extr).map((xyz, drive) => ({
-					position: (drive < response.data.coords.xyz.length) ? xyz : response.data.coords.extr[drive - response.data.coords.xyz.length]
+				extruders: response.coords.extr.map((position, extruder) => ({
+					drives: [response.coords.xyz.length + extruder],
+					factor: response.params.extrFactors[extruder] / 100,
+					position: position
 				})),
-				extruders: response.data.params.extrFactors.map(factor => ({ factor: factor / 100 })),
-				speedFactor: response.data.params.speedFactor / 100
+				speedFactor: response.params.speedFactor / 100,
+				workspaceNumber: (response.wpl !== undefined) ? response.wpl : 1
 			},
-			scanner: (response.data.scanner) ? {
-				progress: response.data.scanner.progress,
-				status: response.data.scanner.status
+			scanner: (response.scanner) ? {
+				progress: response.scanner.progress,
+				status: response.scanner.status
 			} : {},
 			sensors: {
-				probes: [
+				analog: response.temps.current.map((lastReading, number) => ({ lastReading, number }))
+						.concat(response.temps.extra.map(extra => ({
+							lastReading: (extra.temp === 9999) ? null : extra.temp,
+							name: extra.name
+						}))),
+				probes: (this.probeType !== 0) ? [
 					{
-						value: response.data.sensors.probeValue,
-						secondaryValues: response.data.sensors.probeSecondary ? response.data.sensors.probeSecondary : []
+						value: [response.sensors.probeValue].concat(response.sensors.probeSecondary ? response.sensors.probeSecondary : [])
 					}
-				]
+				] : []
 			},
 			state: {
-				atxPower: !!response.data.params.atxPower,
-				currentTool: response.data.currentTool,
-				status: this.convertStatusLetter(response.data.status)
+				atxPower: (response.params.atxPower === -1) ? null : Boolean(response.params.atxPower),
+				currentTool: response.currentTool,
+				status: this.convertStatusLetter(response.status)
 			},
-			tools: response.data.temps.tools.active.map((active, index) => ({
+			tools: response.temps.tools.active.map((active, index) => ({
 				active,
-				standby: response.data.temps.tools.standby[index]
+				standby: response.temps.tools.standby[index]
 			}))
-		};
+		});
+		if (newData.move.axes.length >= 3) {
+			newData.move.axes[2].babystep = (response.params.babystep !== undefined) ? response.params.babystep : 0;
+		}
+		if (response.coords.machine) {
+			response.coords.machine.forEach(function(machinePosition, axis) {
+				newData.move.axes[axis].machinePosition = (machinePosition === 9999) ? null : machinePosition;
+			});
+		}
+		if (response.temps.bed && response.temps.bed.heater >= 0 && response.temps.bed.heater < newData.sensors.analog.length) {
+			newData.heat.heaters[response.temps.bed.heater].active = response.temps.bed.active;
+			newData.heat.heaters[response.temps.bed.heater].standby = response.temps.bed.standby;
+		}
+		if (response.temps.chamber && response.temps.chamber.heater >= 0 && response.temps.chamber.heater < newData.sensors.analog.length) {
+			newData.heat.heaters[response.temps.chamber.heater].active = response.temps.chamber.active;
+			newData.heat.heaters[response.temps.chamber.heater].standby = response.temps.chamber.standby;
+		}
+		if (response.temps.cabinet && response.temps.cabinet.heater >= 0 && response.temps.cabinet.heater < newData.sensors.analog.length) {
+			newData.heat.heaters[response.temps.cabinet.heater].active = response.temps.cabinet.active;
+			newData.heat.heaters[response.temps.cabinet.heater].standby = response.temps.cabinet.standby;
+		}
+		this.numExtruders = response.coords.extr.length;
 
 		if (statusType === 2) {
 			// Extended Status Response
+			const axisNames = (response.axisNames !== undefined) ? response.axisNames.split('') : ['X', 'Y', 'Z', 'U', 'V', 'W', 'A', 'B', 'C'];
+			const boardDefinition = getBoardDefinition(this.boardType);
 			this.name = name;
+			this.probeType = response.probe ? response.probe.type : 0;
 
-			quickMerge(newData, {
-				electronics: {
-					firmware: {
-						name: response.data.firmwareName
-					},
-					mcuTemp: response.data.mcutemp ? {
-						min: response.data.mcutemp.min,
-						current: response.data.mcutemp.cur,
-						max: response.data.mcutemp.max
-					} : {},
-					vIn: response.data.vin ? {
-						min: response.data.vin.min,
-						current: response.data.vin.cur,
-						max: response.data.vin.max
-					} : {}
-				},
+			quickPatch(newData, {
+				boards: [
+					{
+						firmwareFileName: boardDefinition.firmwareFileName,
+						firmwareName: response.firmwareName,
+						iapFileNameSD: boardDefinition.iapFileNameSD,
+						maxHeaters: boardDefinition.maxHeaters,
+						maxMotors: boardDefinition.maxMotors,
+						mcuTemp: response.mcutemp ? {
+							min: response.mcutemp.min,
+							current: response.mcutemp.cur,
+							max: response.mcutemp.max
+						} : {},
+						shortName: this.boardType,
+						supports12864: boardDefinition.supports12864,
+						v12: response.v12 ? {
+							min: response.v12.min,
+							current: response.v12.cur,
+							max: response.v12.max
+						} : {},
+						vIn: response.vin ? {
+							min: response.vin.min,
+							current: response.vin.cur,
+							max: response.vin.max
+						} : {}
+					}
+				],
 				fans: newData.fans.map((fanData, index) => ({
-					name: response.data.params.fanNames ? response.data.params.fanNames[index] : undefined,
+					name: !response.params.fanNames ? null : response.params.fanNames[index],
 					thermostatic: {
-						control: (response.data.controllableFans & (1 << index)) === 0,
+						heaters: ((response.controllableFans & (1 << index)) !== 0) ? [] : [-1]
 					}
 				})),
 				heat: {
-					// FIXME-FW: 'heater' should not be part of the standard status response
-					beds: [
-						response.data.temps.bed ? {
-							heaters: [response.data.temps.bed.heater]
-						} : null
-					],
-					chambers: [
-						response.data.temps.chamber ? {
-							heaters: [response.data.temps.chamber.heater]
-						} : null,
-						response.data.temps.cabinet ? {
-							heaters: [response.data.temps.cabinet.heater]
-						} : null
-					],
-					coldExtrudeTemperature: response.data.coldExtrudeTemp,
-					coldRetractTemperature: response.data.coldRetractTemp,
-					heaters: response.data.temps.names.map(name => ({
-						max: response.data.tempLimit,
-						name
-					}))
+					bedHeaters: response.temps.bed ? [response.temps.bed.heater] : [],
+					chamberHeaters: (response.temps.chamber ? [response.temps.chamber.heater] : [])
+									.concat(response.temps.cabinet ? [response.temps.cabinet.heater] : []),
+					coldExtrudeTemperature: response.coldExtrudeTemp,
+					coldRetractTemperature: response.coldRetractTemp
 				},
 				move: {
-					axes: response.data.axisNames.split('').map((axis, index) => ({
-						letter: axis,
-						visible: index < response.data.axes
+					axes: response.coords.xyz.map((position, index) => ({
+						letter: axisNames[index],
+						visible: (response.axes !== undefined) ? (index < response.axes) : true
 					})),
-					compensation: response.data.compensation,
-					geometry: {
-						type: response.data.geometry
+					compensation: {
+						type: response.compensation
+					},
+					kinematics: {
+						name: response.geometry
 					}
 				},
 				network: {
-					name: response.data.name
+					name: response.name
 				},
 				sensors: {
-					endstops: newData.move.drives.map((drive, index) => ({
-						triggered: (response.data.endstops & (1 << index)) !== 0
+					endstops: [...Array(response.coords.xyz.length + response.coords.extr.length)].map((dummy, drive) => ({
+						triggered: Boolean(response.endstops & (1 << drive))
 					})),
-					probes: [
+					probes: (response.probe && response.probe.type !== 0) ? [
 						{
-							threshold: response.data.probe.threshold,
-							triggerHeight: response.data.probe.height,
-							type: response.data.probe.type
+							threshold: response.probe.threshold,
+							triggerHeight: response.probe.height,
+							type: response.probe.type
 						}
-					]
+					] : []
 				},
 				state: {
-					mode: response.data.mode
+					machineMode: response.mode ? response.mode : null,
 				},
-				tools: response.data.tools.map(tool => ({
+				tools: (response.tools !== undefined) ? response.tools.map(tool => ({
 					number: tool.number,
-					name: tool.name,
+					name: tool.name ? tool.name : '',
 					heaters: tool.heaters,
 					extruders: tool.drives,
 					axes: tool.axisMap,
 					fans: bitmapToArray(tool.fans),
-					filament: tool.filament,
+					filamentExtruder: (tool.drives.length > 0) ? tool.drives[0] : -1,
 					offsets: tool.offsets
-				}))
+				})) : []
 			});
 
-			newData.storages = [];
-			for (let i = 0; i < response.data.volumes; i++) {
-				newData.storages.push({
-					mounted: (response.data.mountedVolumes & (1 << i)) !== 0
+			newData.heat.heaters.forEach(heater => heater.max = response.tempLimit);
+
+			response.tools.forEach(tool => {
+				if (tool.drives.length > 0) {
+					const drive = tool.drives[0];
+					if (drive >= 0 && drive < newData.move.extruders.length) {
+						newData.move.extruders[0].filament = tool.filament;
+					}
+				}
+			});
+
+			if (response.temps.names !== undefined) {
+				response.temps.names.forEach((name, index) => newData.sensors.analog[index].name = name);
+			}
+
+			newData.volumes = [];
+			for (let i = 0; i < response.volumes; i++) {
+				newData.volumes.push({
+					mounted: (response.mountedVolumes & (1 << i)) !== 0
 				});
 			}
-		} else if (statusType === 3) {
-			// Print Status Response
-			newData.job  = {
-				filePosition: response.data.filePosition,
-				extrudedRaw: response.data.extrRaw,
-				duration: response.data.printDuration,
-				layer: response.data.currentLayer,
-				layerTime: response.data.currentLayerTime,
-				warmUpDuration: response.data.warmUpDuration,
-				timesLeft: {
-					file: response.data.timesLeft.file,
-					filament: response.data.timesLeft.filament,
-					layer: response.data.timesLeft.layer
+
+			response.tools.forEach(tool => {
+				if (tool.drives.length > 0) {
+					const extruder = tool.drives[0];
+					if (extruder >= 0 && extruder < newData.move.extruders.length && newData.move.extruders[extruder] !== null) {
+						newData.move.extruders[extruder].filament = tool.filament;
+					}
 				}
+			});
+		} else if (statusType === 3) {
+			if (!newData.job) {
+				newData.job = {};
+			}
+
+			// Print Status Response
+			quickPatch(newData.job, {
+				file: {},
+				filePosition: response.filePosition
+			});
+			response.extrRaw.forEach((rawPosition, extruder) => newData.move.extruders[extruder].rawPosition = rawPosition);
+
+			// Update some stats only if the print is still live
+			if (isPrinting) {
+				quickPatch(newData.job, {
+					duration: response.printDuration,
+					layer: response.currentLayer,
+					layerTime: response.currentLayerTime,
+					warmUpDuration: response.warmUpDuration,
+					timesLeft: {
+						file: response.timesLeft.file,
+						filament: response.timesLeft.filament,
+						layer: response.timesLeft.layer
+					}
+				});
+			} else {
+				quickPatch(newData.job, {
+					layerTime: null,
+					timesLeft: {
+						file: null,
+						filament: null,
+						layer: null
+					}
+				});
 			}
 
 			// See if we need to record more layer stats
-			if (response.data.currentLayer > this.layers.length) {
+			if (response.currentLayer > this.layers.length) {
 				let addLayers = false;
 				if (!this.layers.length) {
 					// Is the first layer complete?
-					if (response.data.currentLayer > 1) {
+					if (response.currentLayer > 1) {
 						this.layers.push({
-							duration: response.data.firstLayerDuration,
-							height: response.data.firstLayerHeight,
-							filament: (response.data.currentLayer === 2) ? response.data.extrRaw.filter(amount => amount > 0) : undefined,
-							fractionPrinted: (response.data.currentLayer === 2) ? response.data.fractionPrinted / 100 : undefined
+							duration: response.firstLayerDuration,
+							height: this.currentFileInfo.firstLayerHeight,
+							filament: (response.currentLayer === 2) ? response.extrRaw.filter(amount => amount > 0) : null,
+							fractionPrinted: (response.currentLayer === 2) ? response.fractionPrinted / 100 : null
 						});
 						newData.job.layers = this.layers;
 
 						// Keep track of the past layer
-						if (response.data.currentLayer === 2) {
-							this.printStats.duration = response.data.warmUpDuration + response.data.firstLayerDuration;
-							this.printStats.extrRaw = response.data.extrRaw;
-							this.printStats.fractionPrinted = response.data.fractionPrinted;
-							this.printStats.measuredLayerHeight = response.data.coords.xyz[2] - response.data.firstLayerHeight;
-							this.printStats.zPosition = response.data.coords.xyz[2];
-						} else if (response.data.currentLayer > this.layers.length + 1) {
+						if (response.currentLayer === 2) {
+							this.printStats.duration = response.warmUpDuration + response.firstLayerDuration;
+							this.printStats.extrRaw = response.extrRaw;
+							this.printStats.fractionPrinted = response.fractionPrinted;
+							this.printStats.measuredLayerHeight = response.coords.xyz[2] - this.currentFileInfo.firstLayerHeight;
+							this.printStats.zPosition = response.coords.xyz[2];
+						} else if (response.currentLayer > this.layers.length + 1) {
 							addLayers = true;
 						}
 					}
-				} else if (response.data.currentLayer > this.layers.length + 1) {
+				} else if (response.currentLayer > this.layers.length + 1) {
 					// Another layer is complete, add it
 					addLayers = true;
 				}
 
 				if (addLayers) {
-					const layerJustChanged = (response.data.currentLayer - this.layers.length) === 2;
+					const layerJustChanged = (response.status === 'M') || ((response.currentLayer - this.layers.length) === 2);
 					if (this.printStats.duration) {
 						// Got info about the past layer, add what we know
 						this.layers.push({
-							duration: response.data.printDuration - this.printStats.duration,
+							duration: response.printDuration - this.printStats.duration,
 							height: this.printStats.measuredLayerHeight ? this.printStats.measuredLayerHeight : this.printStats.layerHeight,
-							filament: response.data.extrRaw.map((amount, index) => amount - this.printStats.extrRaw[index]).filter((dummy, index) => response.data.extrRaw[index] > 0),
-							fractionPrinted: (response.data.fractionPrinted - this.printStats.fractionPrinted) / 100
+							filament: response.extrRaw.map((amount, index) => amount - this.printStats.extrRaw[index]).filter((dummy, index) => response.extrRaw[index] > 0),
+							fractionPrinted: (response.fractionPrinted - this.printStats.fractionPrinted) / 100
 						});
 					} else {
 						// Interpolate data...
-						const avgDuration = (response.data.printDuration - response.data.warmUpDuration - response.data.firstLayerDuration - response.data.currentLayerTime) / (response.data.currentLayer - 2);
-						for (let layer = this.layers.length; layer + 1 < response.data.currentLayer; layer++) {
+						const avgDuration = (response.printDuration - response.warmUpDuration - response.firstLayerDuration - response.currentLayerTime) / (response.currentLayer - 2);
+						for (let layer = this.layers.length; layer + 1 < response.currentLayer; layer++) {
 							this.layers.push({ duration: avgDuration });
 						}
-						this.printStats.zPosition = response.data.coords.xyz[2];
+						this.printStats.zPosition = response.coords.xyz[2];
 					}
 					newData.job.layers = this.layers;
 
 					// Keep track of the past layer if the layer change just happened
 					if (layerJustChanged) {
-						this.printStats.duration = response.data.printDuration;
-						this.printStats.extrRaw = response.data.extrRaw;
-						this.printStats.fractionPrinted = response.data.fractionPrinted;
-						this.printStats.measuredLayerHeight = response.data.coords.xyz[2] - this.printStats.zPosition;
-						this.printStats.zPosition = response.data.coords.xyz[2];
+						this.printStats.duration = response.printDuration;
+						this.printStats.extrRaw = response.extrRaw;
+						this.printStats.fractionPrinted = response.fractionPrinted;
+						this.printStats.measuredLayerHeight = response.coords.xyz[2] - this.printStats.zPosition;
+						this.printStats.zPosition = response.coords.xyz[2];
 					}
 				}
 			}
 		}
 
 		// Output Utilities
-		if (response.data.output) {
+		let beepFrequency = 0, beepDuration = 0, displayMessage = '', messageBox = null;
+		if (response.output) {
 			// Beep
-			const frequency = response.data.output.beepFrequency;
-			const duration = response.data.output.beepDuration;
-			if (frequency && duration) {
-				this.store.commit(`machines/${this.hostname}/beep`, { frequency, duration });
+			if (response.output.beepFrequency !== undefined && response.output.beepDuration !== undefined) {
+				beepFrequency = response.output.beepFrequency;
+				beepDuration = response.output.beepDuration;
 			}
 
-			// Message
-			const message = response.data.output.message;
-			if (message) {
-				this.store.commit(`machines/${this.hostname}/message`, message);
+			// Persistent Message
+			if (response.output.message !== undefined) {
+				displayMessage = response.output.message;
 			}
 
 			// Message Box
-			const msgBox = response.data.output.msgBox;
-			if (msgBox) {
-				this.messageBoxShown = true;
-				quickMerge(newData, {
-					messageBox: {
-						mode: msgBox.mode,
-						title: msgBox.title,
-						message: msgBox.msg,
-						timeout: msgBox.timeout,
-						axisControls: bitmapToArray(msgBox.controls)
-					}
-				});
-			} else if (this.messageBoxShown) {
-				this.messageBoxShown = false;
-				quickMerge(newData, {
-					messageBox: {
-						mode: null
-					}
+			if (response.output.msgBox) {
+				messageBox = new MessageBox({
+					mode: response.output.msgBox.mode,
+					title: response.output.msgBox.title,
+					message: response.output.msgBox.msg,
+					timeout: response.output.msgBox.timeout,
+					axisControls: response.output.msgBox.controls
 				});
 			}
-		} else if (this.messageBoxShown) {
-			this.messageBoxShown = false;
-			quickMerge(newData, {
-				messageBox: {
-					mode: null
-				}
-			});
 		}
+
+		quickPatch(newData, {
+			state: {
+				beep: (beepFrequency > 0 && beepDuration > 0) ? new BeepRequest({
+					frequency: beepFrequency,
+					duration: beepDuration
+				}) : null,
+				displayMessage,
+				messageBox
+			}
+		});
 
 		// Spindles
-		if (response.data.spindles) {
-			quickMerge(newData, {
-				spindles: response.data.spindles.map(spindle => ({
+		if (response.spindles) {
+			quickPatch(newData, {
+				spindles: response.spindles.map(spindle => ({
 					active: spindle.active,
-					current: spindle.current
+					current: spindle.current,
+					tool: spindle.tool
 				}))
 			});
-
-			response.data.spindles.forEach((spindle, index) => {
-				newData.tools.find(tool => tool.number === spindle.tool).spindle = index;
-			});
 		}
 
-		// See if we need to pass some info from the connect response
-		if (this.justConnected) {
-			quickMerge(newData, {
-				electronics: {
-					type: this.boardType
-				},
-				network: {
-					password: this.password
+		// Remove invalid heaters
+		for (let i = 0; i < newData.heat.heaters.length; i++) {
+			const heater = newData.heat.heaters[i];
+			if (heater && heater.state === HeaterState.off) {
+				if (heater.sensor < 0 || heater.sensor >= newData.sensors.analog.length ||
+					newData.sensors.analog[heater.sensor].lastReading === 2000) {
+					newData.heat.heaters[i] = null;
 				}
-			});
-		}
-
-		// See if a print has started
-		if (isPrinting && (this.justConnected || !wasPrinting)) {
-			const currentFileInfo = await this.getFileInfo();
-			quickMerge(newData, {
-				job: {
-					file: {
-						name: currentFileInfo.fileName,
-						size: currentFileInfo.size,
-						filamentNeeded: currentFileInfo.filament,
-						generatedBy: currentFileInfo.generatedBy,
-						height: currentFileInfo.height,
-						layerHeight: currentFileInfo.layerHeight,
-						numLayers: (currentFileInfo.height && currentFileInfo.firstLayerHeight && currentFileInfo.layerHeight) ? Math.round((currentFileInfo.height - currentFileInfo.firstLayerHeight) / currentFileInfo.layerHeight) + 1 : undefined,
-						printTime: currentFileInfo.printTime,
-						simulatedTime: currentFileInfo.simulatedTime
-					},
-					layers: []
-				}
-			});
-
-			this.printStats = {
-				layerHeight: currentFileInfo.layerHeight
-			};
+			}
 		}
 
 		// Update the data model
 		await this.dispatch('update', newData);
 
 		// Check if the G-code response needs to be polled
-		if (response.data.seq !== this.lastStatusResponse.seq) {
-			await this.getGCodeReply(response.data.seq);
+		if (response.seq !== this.lastSeq) {
+			await this.getGCodeReply(response.seq);
+			this.lastSeq = response.seq;
 		}
 
 		// Check if the firmware rebooted
-		if (!this.justConnected && response.data.time < this.lastStatusResponse.time) {
-			this.pendingCodes.forEach(code => code.reject(new DisconnectedError()));
+		if (!this.justConnected && response.time < this.lastStatusResponse.time) {
+			this.pendingCodes.forEach(code => code.reject(new OperationCancelledError()));
 			this.pendingCodes = [];
 		}
 
@@ -581,12 +689,21 @@ export default class PollConnector extends BaseConnector {
 			await this.getConfigResponse();
 		}
 
-		// Schedule next status update
-		this.lastStatusResponse = response.data;
-		this.isReconnecting = (response.data.status === 'F') || (response.data.status === 'H');
+		// Status update complete
+		this.lastStatusResponse = response;
 		this.justConnected = false;
 		this.updateLoopCounter++;
+
+		// Schedule the next status update
 		this.scheduleUpdate();
+	}
+
+	convertHeaterState(state) {
+		const keys = Object.keys(HeaterState);
+		if (state >= 0 && state < keys.length) {
+			return keys[state];
+		}
+		return null;
 	}
 
 	convertStatusLetter(letter) {
@@ -606,35 +723,280 @@ export default class PollConnector extends BaseConnector {
 		return 'unknown';
 	}
 
-	scheduleUpdate() {
-		if (this.justConnected || this.updateLoopTimer) {
-			const that = this;
-			// Perform status update
-			this.updateLoopTimer = setTimeout(async function() {
-				try {
-					/* eslint-disable no-useless-call */
-					await that.updateLoop.call(that);
-				} catch (e) {
-					if (!(e instanceof DisconnectedError)) {
-						if (that.isReconnecting) {
-							that.updateLoopTimer = undefined;
-							that.reconnect();
-						} else {
-							console.warn(e);
-							that.dispatch('onConnectionError', e);
-						}
+	// Call this only from updateLoopStatus()
+	async getConfigResponse() {
+		const response = await this.request('GET', 'rr_config');
+		const configData = {
+			boards: [
+				{
+					name: response.firmwareElectronics,
+					firmwareDate: response.firmwareDate,
+					firmwareName: response.firmwareName,
+					firmwareVersion: response.firmwareVersion
+				}
+			],
+			directories: (response.sysdir !== undefined) ? {
+				system: response.sysdir
+			} : {},
+			move: {
+				axes: response.axisMins.map((min, index) => ({
+					acceleration: response.accelerations[index],
+					current: response.currents[index],
+					jerk: response.minFeedrates[index],
+					min,
+					max: response.axisMaxes[index],
+					speed: response.maxFeedrates[index]
+				})),
+				extruders: [...Array(this.numExtruders)].map((dummy, index) => ({
+					acceleration: response.accelerations[response.axisMins.length + index],
+					current: response.currents[response.axisMins.length + index],
+					jerk: response.minFeedrates[response.axisMins.length + index],
+					speed: response.maxFeedrates[response.axisMins.length + index]
+				})),
+				idle: {
+					factor: response.idleCurrentFactor,
+					timeout: response.idleTimeout
+				}
+			},
+			network: {
+				interfaces: [
+					{
+						type: (response.dwsVersion !== undefined) ? 'wifi' : 'lan',
+						firmwareVersion: response.dwsVersion
+					}
+				]
+			}
+		};
+
+		await this.dispatch('update', configData);
+	}
+
+	lastSeqs = {}
+	lastStatus = null
+	lastUptime = 0
+	async updateLoopModel() {
+		let jobKey = null, extruders = [], status = null, zPosition = null;
+		if (this.justConnected) {
+			this.justConnected = false;
+
+			// Query the seqs field and the G-code reply
+			this.lastSeqs = (await this.request('GET', 'rr_model', { key: 'seqs' })).result;
+			if (this.lastSeqs == null || this.lastSeqs.reply === undefined) {
+				console.warn('Incompatible rr_model version detected, falling back to status responses');
+				window.forceLegacyConnect = true;
+				BaseConnector.setConnectingProgress(-1);
+				return;
+			}
+			if (this.lastSeqs.reply > 0) {
+				await this.getGCodeReply(this.lastSeqs.reply);
+			}
+
+			// Query the full object model initially
+			try {
+				let keyIndex = 1, numKeys = Object.keys(DefaultMachineModel).length;
+				for (let key in DefaultMachineModel) {
+					const keyResponse = await this.request('GET', 'rr_model', { key, flags: 'd99vn' });
+					await this.dispatch('update', { [key]: keyResponse.result });
+					BaseConnector.setConnectingProgress((keyIndex++ / numKeys) * 100);
+
+					if (key === 'job') {
+						jobKey = keyResponse.result;
+					} else if (key === 'move') {
+						extruders = keyResponse.result.extruders;
+						zPosition = (keyResponse.result.axes.length > 2) ? keyResponse.result.axes[2].userPosition : null;
+					} else if (key === 'state') {
+						status = keyResponse.result.status;
+						this.lastUptime = keyResponse.result.upTime;
 					}
 				}
-			}, this.settings.updateInterval);
+			} finally {
+				BaseConnector.setConnectingProgress(-1);
+			}
+		} else {
+			// Query live values
+			const response = await this.request('GET', 'rr_model', { flags: 'd99fn' }), seqs = response.result.seqs;
+			extruders = response.result.move.extruders;
+			delete response.result.seqs;
+			status = response.result.state.status;
+			zPosition = (response.result.move.axes.length > 2) ? response.result.move.axes[2].userPosition : null;
+
+			// Apply new values
+			if (!isPrinting(status) && isPrinting(this.lastStatus)) {
+				response.result.job.lastFileCancelled = isPaused(this.lastStatus);
+				response.result.job.lastFileSimulated = (this.lastStatus === StatusType.simulating);
+			}
+			await this.dispatch('update', response.result);
+
+			// Check if any of the non-live fields have changed and query them if so
+			for (let key in DefaultMachineModel) {
+				if (this.lastSeqs[key] !== seqs[key]) {
+					const keyResponse = await this.request('GET', 'rr_model', { key, flags: 'd99vn' });
+					await this.dispatch('update', { [key]: keyResponse.result });
+
+					if (key === 'job') {
+						jobKey = keyResponse.result;
+					}
+				}
+			}
+
+			// Check if the firmware has rebooted
+			if (response.result.state.upTime < this.lastUptime) {
+				this.justConnected = true;
+				this.pendingCodes.forEach(code => code.reject(new OperationCancelledError()));
+				this.pendingCodes = [];
+
+				// Send the rr_connect request and datetime again after a firmware reset
+				await this.request('GET', 'rr_connect', {
+					password: this.password,
+					time: timeToStr(new Date())
+				});
+			}
+			this.lastUptime = response.result.state.upTime;
+
+			// Finally check if there is a new G-code reply available
+			if (this.lastSeqs.reply !== seqs.reply) {
+				await this.getGCodeReply(seqs.reply);
+			}
+			this.lastSeqs = seqs;
+		}
+
+		// See if we need to record more layer stats
+		if (jobKey && isPrinting(status)) {
+			let layersChanged = false;
+			if (!isPrinting(this.lastStatus)) {
+				this.layers = [];
+				layersChanged = true;
+			}
+
+			const extrRaw = extruders.map(extruder => extruder.rawPosition);
+			const fractionPrinted = (jobKey.size > 0) ? (jobKey.filePosition / jobKey.file.size) : 0;
+			let addLayers = false;
+			if (this.layers.length === 0) {
+				// Is the first layer complete?
+				if (jobKey.layer > 1) {
+					this.layers.push({
+						duration: jobKey.firstLayerDuration,
+						height: jobKey.file.firstLayerHeight,
+						filament: (jobKey.layer === 2) ? extrRaw : null,
+						fractionPrinted: (jobKey.layer === 2) ? fractionPrinted : null
+					});
+					layersChanged = true;
+
+					// Keep track of the past layer
+					if (jobKey.layer === 2) {
+						this.printStats.duration = jobKey.warmUpDuration + jobKey.firstLayerDuration;
+						this.printStats.extrRaw = extrRaw;
+						this.printStats.fractionPrinted = fractionPrinted;
+						this.printStats.measuredLayerHeight = zPosition - jobKey.file.firstLayerHeight;
+						this.printStats.zPosition = zPosition;
+					} else if (jobKey.layer > this.layers.length + 1) {
+						addLayers = true;
+					}
+				}
+			} else if (jobKey.layer > this.layers.length + 1) {
+				// Another layer is complete, add it
+				addLayers = true;
+			}
+
+			if (addLayers) {
+				if (this.printStats.duration) {
+					// Got info about the past layer, add what we know
+					this.layers.push({
+						duration: jobKey.duration - this.printStats.duration,
+						height: this.printStats.measuredLayerHeight ? this.printStats.measuredLayerHeight : this.printStats.layerHeight,
+						filament: extrRaw
+						.map((amount, index) => amount - this.printStats.extrRaw[index])
+						.filter((dummy, index) => extrRaw[index] > 0),
+						fractionPrinted: fractionPrinted - this.printStats.fractionPrinted
+					});
+					layersChanged = true;
+				} else {
+					// Interpolate data...
+					const avgDuration = (jobKey.duration - jobKey.warmUpDuration - jobKey.firstLayerDuration - jobKey.layerTime) / (jobKey.layer - 2);
+					for (let layer = this.layers.length; layer + 1 < jobKey.layer; layer++) {
+						this.layers.push({ duration: avgDuration });
+						layersChanged = true;
+					}
+				}
+
+				// Keep track of the past layer if new layers have been added
+				if (layersChanged) {
+					this.printStats.duration = jobKey.duration;
+					this.printStats.extrRaw = extrRaw;
+					this.printStats.fractionPrinted = fractionPrinted;
+					this.printStats.measuredLayerHeight = zPosition - this.printStats.zPosition;
+					this.printStats.zPosition = zPosition;
+				}
+			}
+
+			if (layersChanged) {
+				await this.dispatch('update', {
+					job: {
+						layers: this.layers
+					}
+				});
+			}
+		}
+
+		// Schedule the next status update
+		this.lastStatus = status;
+		this.scheduleUpdate();
+	}
+
+	async doUpdate() {
+		this.updateLoopTimer = null;
+		try {
+			if (!window.forceLegacyConnect && this.apiLevel >= 1) {
+				// Request object model updates
+				await this.updateLoopModel();
+			} else {
+				// Request updates using the legacy poll adapter
+				await this.updateLoopStatus();
+			}
+		} catch (e) {
+			console.warn(e);
+			await this.dispatch('onConnectionError', e);
 		}
 	}
 
-	// Call this only from updateLoop()
-	async getGCodeReply(seq = this.lastStatusResponse.seq) {
-		const response = await this.axios.get('rr_reply', {
-			responseType: 'arraybuffer' 	// responseType: 'text' is broken, see https://github.com/axios/axios/issues/907
-		});
-		const reply = Buffer.from(response.data).toString().trim();
+	scheduleUpdate() {
+		if (!this.updateLoopTimer) {
+			this.updateLoopTimer = setTimeout(this.doUpdate.bind(this), this.settings.updateInterval);
+		}
+	}
+
+	async sendCode(code) {
+		const response = await this.request('GET', 'rr_gcode', { gcode: code });
+		if (!(response instanceof Object)) {
+			console.warn(`Received bad response for rr_gcode: ${JSON.stringify(response)}`);
+			throw new CodeResponseError();
+		}
+		if (response.buff === 0) {
+			throw new CodeBufferError();
+		}
+
+		let inBraces = false;
+		for (let i = 0; i < code.length; i++) {
+			if (inBraces) {
+				inBraces = (code[i] !== ')');
+			} else if (code[i] === '(') {
+				inBraces = true;
+			} else {
+				if (code[i] === ';') {
+					return '';
+				}
+
+				if (code[i] !== ' ' && code[i] !== '\t' && code[i] !== '\r' && code !== '\n') {
+					const pendingCodes = this.pendingCodes, seq = this.lastSeq;
+					return new Promise((resolve, reject) => pendingCodes.push({ seq, resolve, reject }));
+				}
+			}
+		}
+	}
+
+	async getGCodeReply(seq) {
+		const response = await this.request('GET', 'rr_reply', this.requestTimeout, 'text');
+		const reply = response.trim();
 
 		// TODO? Check for special JSON responses generated by M119, see DWC1
 		// Probably makes sense only as soon as the settings update notifications are working again
@@ -654,208 +1016,96 @@ export default class PollConnector extends BaseConnector {
 		}
 	}
 
-	// Call this only from updateLoop()
-	async getConfigResponse() {
-		const response = await this.axios.get('rr_config');
-		const configData = {
-			electronics: {
-				name: response.data.firmwareElectronics,
-				firmware: {
-					name: response.data.firmwareName,
-					version: response.data.firmwareVersion,
-					date: response.data.firmwareDate
-				}
-			},
-			move: {
-				axes: response.data.axisMins.map((min, index) => ({
-					min,
-					max: response.data.axisMaxes[index]
-				})),
-				drives: response.data.currents.map((current, index) => ({
-					current,
-					acceleration: response.data.accelerations[index],
-					minSpeed: response.data.minFeedrates[index],
-					maxSpeed: response.data.maxFeedrates[index]
-				})),
-				idle: {
-					factor: response.data.idleCurrentFactor,
-					timeout: response.data.idleTimeout
-				}
-			},
-			network: {
-				interfaces: [
-					{
-						type: (response.data.dwsVersion !== undefined) ? 'wifi' : 'lan',
-						firmwareVersion: response.data.dwsVersion
-						// Unfortunately we cannot populate anything else here yet
-					}
-				]
-			}
+	async upload({ filename, content, cancellationToken = null, onProgress }) {
+		// Create upload options
+		const payload = (content instanceof(Blob)) ? content : new Blob([content]);
+		const params = {
+			name: filename,
+			time: timeToStr(content.lastModified ? new Date(content.lastModified) : new Date())
 		};
 
-		await this.dispatch('update', configData);
-	}
-
-	async sendCode(code) {
-		const response = await this.axios.get('rr_gcode', {
-			params: { gcode: code }
-		});
-
-		if (response.data.buff === undefined) {
-			console.warn(`Received bad response for rr_gcode: ${JSON.stringify(response.data)}`);
-			throw new CodeResponseError();
-		}
-		if (response.data.buff === 0) {
-			throw new CodeBufferError();
-		}
-
-		const pendingCodes = this.pendingCodes, seq = this.lastStatusResponse.seq;
-		return new Promise((resolve, reject) => pendingCodes.push({ seq, resolve, reject }));
-	}
-
-	upload({ filename, content, cancelSource = axios.cancelToken.source(), onProgress }) {
-		const that = this;
-		return new Promise(function(resolve, reject) {
-			const reader = new FileReader();
-			reader.onerror = e => reject(e);
-			reader.onload = () => {
-				// Create upload options
-				const options = {
-					cancelToken: cancelSource.token,
-					isFileTransfer: true,
-					onUploadProgress: onProgress,
-					params: {
-						name: filename,
-						time: timeToStr(content.lastModified ? new Date(content.lastModified) : new Date())
-					},
-					timeout: 0,
-					transformRequest(data, headers) {
-						delete headers.post['Content-Type'];
-						return data;
-					}
-				};
-
-				try {
-					// Create file transfer and start it
-					that.axios.post('rr_upload', reader.result, options)
-						.then(function(response) {
-							resolve(response);
-							that.dispatch('onFileUploaded', { filename, content });
-						})
-						.catch(reject)
-						.then(function() {
-							that.fileTransfers = that.fileTransfers.filter(item => item !== cancelSource);
-						});
-
-					// Keep it in the list of transfers
-					that.fileTransfers.push(cancelSource);
-				} catch (e) {
-					reject(e);
+		// Check if the CRC32 checksum is required
+		if (this.settings.crcUploads) {
+			const checksum = await new Promise(function(resolve) {
+				const fileReader = new FileReader();
+				fileReader.onload = function(e){
+					const result = crc32(e.target.result);
+					resolve(result);
 				}
-			}
-			reader.readAsArrayBuffer(content);
-		});
+				fileReader.readAsArrayBuffer(payload);
+			});
+
+			params.crc32 = checksum.toString(16);
+		}
+
+		// Perform actual upload in the background
+		const response = await this.request('POST', 'rr_upload', params, 'json', payload, onProgress, 0, cancellationToken, filename);
+		if (response.err !== 0) {
+			throw new OperationFailedError(`err ${response.err}`);
+		}
+
+		// Upload successful
+		this.dispatch('onFileUploaded', { filename, content });
 	}
 
 	async delete(filename) {
-		const response = await this.axios.get('rr_delete', {
-			params: { name: filename }
-		});
-
-		if (response.data.err) {
-			throw new OperationFailedError(`err ${response.data.err}`);
+		const response = await this.request('GET', 'rr_delete', { name: filename }, 'json', null, null, this.requestTimeout, null, filename);
+		if (response.err !== 0) {
+			throw new OperationFailedError(`err ${response.err}`);
 		}
+
 		await this.dispatch('onFileOrDirectoryDeleted', filename);
 	}
 
-	async move({ from, to, force }) {
-		const response = await this.axios.get('rr_move', {
-			params: {
-				old: from,
-				new: to,
-				deleteexisting: force ? 'yes' : 'no'
-			}
-		});
+	async move({ from, to, force = false, silent = false }) {
+		const response = await this.request('GET', 'rr_move', {
+			old: from,
+			new: to,
+			deleteexisting: force ? 'yes' : 'no'
+		}, 'json', null, null, this.requestTimeout, null, from);
 
-		if (response.data.err) {
-			throw new OperationFailedError(`err ${response.data.err}`);
+		if (!silent) {
+			if (response.err !== 0) {
+				throw new OperationFailedError(`err ${response.err}`);
+			}
+
+			await this.dispatch('onFileOrDirectoryMoved', { from, to, force });
 		}
-		await this.dispatch('onFileOrDirectoryMoved', { from, to, force });
 	}
 
 	async makeDirectory(directory) {
-		const response = await this.axios.get('rr_mkdir', {
-			params: { dir: directory }
-		});
-
-		if (response.data.err) {
-			throw new OperationFailedError(`err ${response.data.err}`);
+		const response = await this.request('GET', 'rr_mkdir', { dir: directory });
+		if (response.err !== 0) {
+			throw new OperationFailedError(`err ${response.err}`);
 		}
+
 		await this.dispatch('onDirectoryCreated', directory);
 	}
 
-	download(payload) {
+	async download(payload) {
 		const filename = (payload instanceof Object) ? payload.filename : payload;
-		const type = (payload instanceof Object) ? payload.type : undefined;
-		const cancelSource = (payload instanceof Object && payload.cancelSource) ? payload.cancelSource : BaseConnector.getCancelSource();
+		const type = (payload instanceof Object && payload.type !== undefined) ? payload.type : 'json';
 		const onProgress = (payload instanceof Object) ? payload.onProgress : undefined;
+		const cancellationToken = (payload instanceof Object && payload.cancellationToken) ? payload.cancellationToken : null;
 
-		const that = this;
-		return new Promise(function(resolve, reject) {
-			// Create download options
-			const options = {
-				cancelToken: cancelSource.token,
-				responseType: (type === 'text') ? 'arraybuffer' : type,	// responseType: 'text' is broken, see https://github.com/axios/axios/issues/907
-				isFileTransfer: true,
-				onDownloadProgress: onProgress,
-				params: {
-					name: filename
-				},
-				timeout: 0
-			};
+		const response = await this.request('GET', 'rr_download', { name: filename }, type, null, onProgress, 0, cancellationToken, filename);
 
-			try {
-				// Create file transfer and start it
-				that.axios.get('rr_download', options)
-					.then(function(response) {
-						if (type === 'text') {
-							// see above...
-							response.data = Buffer.from(response.data).toString();
-						}
-						resolve(response.data);
-						that.dispatch('onFileDownloaded', { filename, content: response.data });
-					})
-					.catch(reject)
-					.then(function() {
-						that.fileTransfers = that.fileTransfers.filter(item => item !== cancelSource);
-					});
-
-				// Keep it in the list of transfers and return the promise
-				that.fileTransfers.push(cancelSource);
-			} catch (e) {
-				reject(e);
-			}
-		});
+		this.dispatch('onFileDownloaded', { filename, content: response });
+		return response;
 	}
 
 	async getFileList(directory) {
 		let fileList = [], next = 0;
 		do {
-			const response = await this.axios.get('rr_filelist', {
-				params: {
-					dir: directory,
-					first: next
-				}
-			});
-
-			if (response.data.err === 1) {
+			const response = await this.request('GET', 'rr_filelist', { dir: directory, first: next });
+			if (response.err === 1) {
 				throw new DriveUnmountedError();
-			} else if (response.data.err === 2) {
+			} else if (response.err === 2) {
 				throw new DirectoryNotFoundError(directory);
 			}
 
-			fileList = fileList.concat(response.data.files);
-			next = response.data.next;
+			fileList = fileList.concat(response.files);
+			next = response.next;
 		} while (next !== 0);
 
 		return fileList.map(item => ({
@@ -867,15 +1117,12 @@ export default class PollConnector extends BaseConnector {
 	}
 
 	async getFileInfo(filename) {
-		const response = await this.axios.get('rr_fileinfo', {
-			params: filename ? { name: filename } : {}
-		});
-
-		if (response.data.err) {
-			throw new OperationFailedError(`err ${response.data.err}`);
+		const response = await this.request('GET', 'rr_fileinfo', filename ? { name: filename } : {}, 'json', null, null, this.sessionTimeout, null, filename);
+		if (response.err) {
+			throw new OperationFailedError(`err ${response.err}`);
 		}
-		delete response.data.err;
 
-		return response.data;
+		delete response.err;
+		return new ParsedFileInfo(response);
 	}
 }

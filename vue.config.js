@@ -9,17 +9,19 @@ module.exports = {
 				cache: true
 			}),
 			new ZipPlugin({
-				filename: 'DuetWebControl-mini.zip',
+				filename: 'DuetWebControl-SD.zip',
 				include: [/\.gz$/, /\.woff$/, /\.woff2$/],
-				exclude: [/\.map.gz$/]
 			}),
 			new ZipPlugin({
-				filename: 'DuetWebControl.zip',
-				include: [/\.gz$/, /\.woff$/, /\.woff2$/],
+				filename: 'DuetWebControl-SBC.zip',
+				exclude: [/\.gz$/, /\.zip$/]
 			})
 		] : []
 	},
 	chainWebpack: config => {
 		config.optimization.delete('splitChunks')
-	}
+	},
+	transpileDependencies: [
+		'vuetify'
+	]
 }

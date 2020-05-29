@@ -1,125 +1,122 @@
 <style scoped>
-.loading {
-	background-color: black;
+.heightmap-container {
+	background-color: #000;
+	color: #FFF;
+	border-radius: 8px;
+	display: flex;
 }
-.loading h1{
-	color: white;
+
+h1 {
+	width: 100%;
+	align-self: center;
 }
-.loading,
-.canvas {
+
+.canvas-container {
+	position: relative;
+	height: 100%;
+	width: 100%;
+	overflow: hidden;
+}
+
+.canvas-container > :first-child {
 	border-radius: 8px 0 0 8px;
 }
-.legend {
+
+.canvas-container > :last-child {
 	border-radius: 0 8px 8px 0;
 }
-canvas {
-	display: flex;
-	min-height: 480px;
+
+.canvas-container > canvas {
+	position: absolute;
 }
+
 .no-cursor {
 	pointer-events: none;
 }
 </style>
 
 <template>
-	<div class="component">
-		<v-card class="card">
-			<v-container ref="container" class="pa-1" fluid>
-				<v-layout row wrap fill-height>
-					<!-- TODO: Add CSV list here -->
+	<v-card class="card">
+		<v-card-text class="py-1">
+			<v-row>
+				<!-- TODO: Add CSV list here -->
 
-					<v-flex class="heightmap-container pa-2" xs12 sm12 md9 lg10 xl10>
-						<v-layout ref="parentElement" row fill-height>
-							<v-flex class="loading" v-show="!ready">
-								<v-layout fill-height align-center>
-									<v-flex tag="h1" class="text-xs-center">
-										{{ loading ? 'loading...' : errorMessage }}
-									</v-flex>
-								</v-layout>
-							</v-flex>
-							<v-flex v-show="ready" shrink>
-								<canvas ref="canvas" class="canvas" @mousemove="canvasMouseMove"></canvas>
-							</v-flex>
-							<v-flex d-flex shrink>
-								<canvas ref="legend" class="legend" width="80"></canvas>
-							</v-flex>
-						</v-layout>
-					</v-flex>
+				<v-col :class="{ 'pa-1': $vuetify.breakpoint.xs }">
+					<div ref="container" class="heightmap-container" v-resize="resize">
+						<h1 v-show="!ready" class="text-center">
+							{{ loading ? $t('generic.loading') : (errorMessage ? errorMessage : $t('panel.heightmap.notAvailable')) }}
+						</h1>
 
-					<v-flex class="pa-2" xs12 sm12 md3 lg2 xl2>
-						<v-layout column fill-height justifiy-space-between>
-							<v-flex class="pt-2">
-								Number of points: {{ $display(numPoints, 0) }}
-							</v-flex>
-							<v-flex>
-								Probing radius: {{ $display(radius, 0, 'mm') }}
-							</v-flex>
-							<v-flex>
-								Probe area: {{ $display(area / 100, 1, 'cm²') }}
-							</v-flex>
-							<v-flex>
-								Maximum deviations: {{ $display(minDiff, 3) }} / {{ $display(maxDiff, 3, 'mm') }}
-							</v-flex>
-							<v-flex>
-								Mean error: {{ $display(meanError, 3, 'mm') }}
-							</v-flex>
-							<v-flex>
-								RMS error: {{ $display(rmsError, 3, 'mm') }}
-							</v-flex>
-							<v-flex>
-								<v-btn class="ml-0" :disabled="!ready" @click="topView">
-									<v-icon small class="mr-1">vertical_align_bottom</v-icon> Top view
-								</v-btn>
-							</v-flex>
-							<v-flex shrink>
-								Color scheme:
-							</v-flex>
-							<v-flex>
-								<v-btn-toggle v-model="colorScheme">
-									<v-btn value="terrain">Terrain</v-btn>
-									<v-btn value="heat">Heat</v-btn>
-								</v-btn-toggle>
-							</v-flex>
-							<v-flex class="pb-2" shrink :loading="loading" @click="getHeightmap">
-								<v-btn>
-									<v-icon class="mr-1">refresh</v-icon> Reload Height Map
-								</v-btn>
-							</v-flex>
-						</v-layout>
-					</v-flex>
-				</v-layout>
-			</v-container>
-		</v-card>
+						<div v-show="ready" class="canvas-container">
+							<canvas ref="canvas" @mousemove="canvasMouseMove"></canvas>
+							<canvas ref="legend" class="legend" width="80"></canvas>
+						</div>
+					</div>
+				</v-col>
 
-		<v-tooltip top absolute v-model="tooltip.shown" :position-x="tooltip.x" :position-y="tooltip.y">
-			<span class="no-cursor">
-				X: {{ $display(tooltip.coord.x, 1, 'mm') }}<br/>
-				Y: {{ $display(tooltip.coord.y, 1, 'mm') }}<br/>
-				Z: {{ $display(tooltip.coord.z, 3, 'mm') }}
-			</span>
-		</v-tooltip>
-	</div>
+				<v-col cols="12" md="auto" class="d-flex">
+					<div class="d-flex flex-column flex-grow-1 justify-space-between">
+						<span>
+							{{ $t('panel.heightmap.numPoints', [$display(numPoints, 0)]) }}
+						</span>
+						<span v-if="radius > 0">
+							{{ $t('panel.heightmap.radius', [$display(radius, 0, 'mm')]) }}
+						</span>
+						<span>
+							{{ $t('panel.heightmap.area', [$display(area / 100, 1, 'cm²')]) }}
+						</span>
+						<span>
+							{{ $t('panel.heightmap.maxDeviations', [$display(minDiff, 3), $display(maxDiff, 3, 'mm')]) }}
+						</span>
+						<span>
+							{{ $t('panel.heightmap.meanError', [$display(meanError, 3, 'mm')]) }}
+						</span>
+						<span>
+							{{ $t('panel.heightmap.rmsError', [$display(rmsError, 3, 'mm')]) }}
+						</span>
+						<div class="d-flex flex-column mt-1">
+							{{ $t('panel.heightmap.colorScheme') }}
+							<v-btn-toggle v-model="colorScheme" class="mt-1">
+								<v-btn value="terrain" class="flex-grow-1">{{ $t('panel.heightmap.terrain') }}</v-btn>
+								<v-btn value="heat" class="flex-grow-1">{{ $t('panel.heightmap.heat') }}</v-btn>
+							</v-btn-toggle>
+						</div>
+						<v-btn @click="topView" :disabled="!ready" class="ml-0 my-3" >
+							<v-icon small class="mr-1">mdi-format-vertical-align-bottom</v-icon> {{ $t('panel.heightmap.topView') }}
+						</v-btn>
+						<v-btn class="ml-0" :disabled="!isConnected" :loading="loading" @click="getHeightmap()">
+							<v-icon class="mr-1">mdi-refresh</v-icon> {{ $t('panel.heightmap.reload') }}
+						</v-btn>
+					</div>
+				</v-col>
+			</v-row>
+
+			<v-tooltip top absolute v-model="tooltip.shown" :position-x="tooltip.x" :position-y="tooltip.y">
+				<span class="no-cursor">
+					X: {{ $display(tooltip.coord.x, 1, 'mm') }} <br>
+					Y: {{ $display(tooltip.coord.y, 1, 'mm') }} <br>
+					Z: {{ $display(tooltip.coord.z, 3, 'mm') }}
+				</span>
+			</v-tooltip>
+		</v-card-text>
+	</v-card>
 </template>
 
 <script>
 'use strict'
 
-import { mapGetters, mapActions } from 'vuex'
+import { mapState, mapGetters, mapActions } from 'vuex'
 
 import { Scene, PerspectiveCamera, WebGLRenderer, Raycaster, Mesh, MeshBasicMaterial, Vector2, Vector3, VertexColors, DoubleSide, ArrowHelper, GridHelper } from 'three'
-import OrbitControls from 'three-orbitcontrols'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 
+import { getModifiedFiles } from '../../store/machine'
 import { drawLegend, setFaceColors, generateIndicators, generateMeshGeometry } from '../../utils/3d.js'
 import CSV from '../../utils/csv.js'
 import Path from '../../utils/path.js'
 
 const scaleZ = 0.5, maxVisualizationZ = 0.25
 const indicatorColor = 0xFFFFFF, indicatorOpacity = 0.4, indicatorOpacityHighlighted = 1.0
-
-let threeInstances = []
-window.addEventListener('resize', function() {
-	threeInstances.forEach(instance => instance.resize())
-})
 
 export default {
 	beforeCreate() {
@@ -137,13 +134,20 @@ export default {
 			lastIntersection: null
 		}
 	},
-	computed: mapGetters(['isConnected']),
+	computed: {
+		...mapGetters(['isConnected']),
+		...mapState('machine/model', {
+			heightmapFile: state => state.move.compensation.file,
+			systemDirectory: state => state.directories.system,
+		}),
+		...mapState('settings', ['language'])
+	},
 	data() {
 		return {
 			isActive: true,
 			ready: false,
 			loading: false,
-			errorMessage: 'height map not available',
+			errorMessage: null,
 
 			colorScheme: 'terrain',
 			tooltip: {
@@ -162,7 +166,9 @@ export default {
 			minDiff: undefined,
 			maxDiff: undefined,
 			meanError: undefined,
-			rmsError: undefined
+			rmsError: undefined,
+
+			unsubscribe: undefined
 		}
 	},
 	methods: {
@@ -179,10 +185,10 @@ export default {
 			this.three.renderer = new WebGLRenderer({ canvas: this.$refs.canvas });
 			this.three.renderer.setSize(size.width, size.height);
 			this.three.orbitControls = new OrbitControls(this.three.camera, this.three.renderer.domElement);
+			this.three.orbitControls.enableKeys = false;
 			this.three.raycaster = new Raycaster();
 
 			// Register this instance in order to deal with size changes
-			threeInstances.push(this);
 			if (this.isConnected) {
 				this.getHeightmap();
 			}
@@ -193,9 +199,25 @@ export default {
 			}
 
 			// Resize canvas elements
-			const containerOffset = this.$refs.container.scrollWidth - this.$refs.container.offsetWidth;
-			const width = this.$refs.parentElement.offsetWidth - this.$refs.legend.offsetWidth - containerOffset;
-			const height = this.$refs.parentElement.offsetHeight;
+			const width = Math.max(this.$refs.container.offsetWidth - 80, 0);
+			let height;
+			switch (this.$vuetify.breakpoint.name) {
+				case 'xs':
+					height = width;
+					break;
+				case 'sm':
+					height = width * 3 / 4;
+					break;
+				case 'xl':
+					height = width * 10 / 16;
+					break;
+				default:
+					height = width * 9 / 16;
+					break;
+			}
+
+			this.$refs.container.style.height = `${height}px`;
+			this.$refs.legend.style.left = `${width}px`;
 			this.$refs.legend.height = height;
 			this.$refs.canvas.width = width;
 			this.$refs.canvas.height = height;
@@ -213,8 +235,9 @@ export default {
 		},
 		showCSV(csvData) {
 			// Load the CSV. The first line is a comment that can be removed
-			const csv = new CSV(csvData.substr(csvData.indexOf("\n") + 1));
-			const radius = parseFloat(csv.get('radius'));
+			const csv = new CSV(csvData.substring(csvData.indexOf("\n") + 1));
+			let radius = parseFloat(csv.get('radius'));
+			if (radius <= 0) { radius = undefined; }
 			const xMin = parseFloat(csv.get('xmin'));
 			const yMin = parseFloat(csv.get('ymin'));
 			let xSpacing = parseFloat(csv.get('xspacing'));
@@ -312,8 +335,10 @@ export default {
 
 			// Render scene
 			this.ready = true;
-			this.resize();
 			this.render();
+
+			// Resize it again when the values have been changed
+			this.$nextTick(this.resize);
 		},
 		render() {
 			if (this.three.renderer) {
@@ -368,16 +393,23 @@ export default {
 			this.three.camera.updateProjectionMatrix();
 		},
 
-		async getHeightmap(filename = Path.heightmap) {
+		async getHeightmap(filename) {
 			if (this.loading) {
 				// Don't attempt to load more than one file at once...
 				return;
 			}
 
+			if (!filename) {
+				filename = this.heightmapFile;
+				if (!filename) {
+					filename = Path.combine(this.systemDirectory, Path.heightmapFile);
+				}
+			}
+
 			this.ready = false;
 			this.loading = true;
 			try {
-				const heightmap = await this.download({ filename, type: 'text', showSuccess: false, showError: false });
+				const heightmap = await this.download({ filename, type: 'text', showProgress: false, showSuccess: false, showError: false });
 				this.showCSV(heightmap);
 			} catch (e) {
 				console.warn(e);
@@ -416,11 +448,20 @@ export default {
 		this.isActive = false;
 	},
 	mounted() {
+		const getHeightmap = this.getHeightmap;
+		this.unsubscribe = this.$store.subscribeAction(function(action, state) {
+			if (getModifiedFiles(action, state).indexOf(Path.heightmapFile) !== -1 ||
+				action.type.endsWith('onCodeCompleted') && action.payload.reply.indexOf(Path.heightmapFile) !== -1) {
+				getHeightmap();
+			}
+		});
+
 		// FIXME give the grid some time to resize everything...
 		setTimeout(this.init, 100);
 	},
 	beforeDestroy() {
-		threeInstances = threeInstances.filter(item => item !== this);
+		this.unsubscribe();
+
 		if (this.three.renderer) {
 			this.three.renderer.forceContextLoss();
 			this.three.renderer = null;
@@ -437,6 +478,14 @@ export default {
 			if (to) {
 				this.getHeightmap();
 			}
+		},
+		heightmapFile(to) {
+			if (to) {
+				this.getHeightmap(to);
+			}
+		},
+		language() {
+			drawLegend(this.$refs.legend, maxVisualizationZ, this.colorScheme);
 		}
 	}
 }

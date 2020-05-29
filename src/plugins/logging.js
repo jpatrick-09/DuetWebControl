@@ -3,7 +3,6 @@
 import { makeNotification } from './toast.js'
 
 import i18n from '../i18n'
-import router from '../routes'
 import { defaultMachine } from '../store/machine'
 
 let store
@@ -24,10 +23,8 @@ export function logCode(code = '', response, hostname = store.state.selectedMach
 	let type = 'info', toLog = response;
 	if (response.startsWith('Error: ')) {
 		type = 'error';
-		toLog = response.substr(7);
 	} else if (response.startsWith('Warning: ')) {
 		type = 'warning';
-		toLog = response.substr(9);
 	} else if (response === '') {
 		type = 'success';
 	}
@@ -35,17 +32,16 @@ export function logCode(code = '', response, hostname = store.state.selectedMach
 	// Log it
 	const responseLines = toLog.split("\n")
 	if (hostname === store.state.selectedMachine) {
-		let title = code, message = responseLines.reduce((a, b) => `${a}<br/>${b}`);
+		let title = code, message = responseLines.join('<br>');
 		if (responseLines.length > 3) {
 			title = (code === '') ? i18n.t('notification.responseTooLong') : code;
 			message = (code === '') ? '' : i18n.t('notification.responseTooLong');
 		} else if (code === '') {
 			title = responseLines[0];
-			message = (responseLines.length > 1) ? responseLines.slice(1).reduce((a, b) => `${a}<br/>${b}`) : '';
+			message = responseLines.slice(1).join('<br>');
 		}
 
-		const notification = makeNotification(type, title, message);
-		notification.domElement.onclick = () => router.push('/Console');
+		makeNotification(type, title, message);
 	}
 	store.commit(`machines/${hostname}/log`, { date: new Date(), type, title: code, message: response });
 }

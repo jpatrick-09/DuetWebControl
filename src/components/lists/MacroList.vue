@@ -1,54 +1,45 @@
-<style>
-.list-icon {
-	width: 32px !important;
-	height: 32px !important;
-}
-</style>
-
 <template>
 	<v-card>
 		<v-card-title>
-			<v-icon small class="mr-1">polymer</v-icon> Macros
+			<v-icon small class="mr-1">mdi-polymer</v-icon> {{ $t('list.macro.caption') }}
 			<v-spacer></v-spacer>
-			<span v-show="isConnected">{{ directory.replace('0:/macros', 'Root') }}</span>
+			<span v-show="isConnected" class="subtitle-2">{{ directory.replace(macrosDirectory, $t('list.macro.root')) }}</span>
 		</v-card-title>
 
-		<v-card-text class="pa-0" v-show="loading || filelist.length">
+		<v-card-text class="pa-0" v-show="loading || filelist.length || !isRootDirectory">
 			<v-progress-linear v-show="loading" :indeterminate="true" class="my-0"></v-progress-linear>
 
 			<v-list class="pt-0" dense>
-				<v-list-tile v-if="!isRootDirectory" @click="goUp" v-tab-control>
-					<v-list-tile-avatar>
-						<v-icon class="list-icon grey lighten-1 white--text">
-							keyboard_arrow_up
+				<v-list-item v-if="!isRootDirectory" @click="goUp">
+					<v-list-item-avatar>
+						<v-icon class="list-icon mr-1 grey lighten-1 white--text">mdi-arrow-up</v-icon>
+					</v-list-item-avatar>
+
+					<v-list-item-content>
+						<v-list-item-title>{{ $t('list.baseFileList.goUp') }}</v-list-item-title>
+					</v-list-item-content>
+				</v-list-item>
+
+				<v-list-item v-for="item in filelist" :key="item.name" @click="itemClick(item)">
+					<v-list-item-avatar>
+						<v-icon class="mr-1" :class="item.isDirectory ? 'grey lighten-1 white--text' : 'blue white--text'">
+							{{ item.isDirectory ? 'mdi-folder' : 'mdi-file' }}
 						</v-icon>
-					</v-list-tile-avatar>
+					</v-list-item-avatar>
 
-					<v-list-tile-content>
-						Go up
-					</v-list-tile-content>
-				</v-list-tile>
+					<v-list-item-content>
+						<v-list-item-title>{{ item.displayName }}</v-list-item-title>
+					</v-list-item-content>
 
-				<v-list-tile v-for="item in filelist" :key="item.name" @click="itemClick(item)" v-tab-control>
-					<v-list-tile-avatar>
-						<v-icon class="list-icon" :class="item.isDirectory ? 'grey lighten-1 white--text' : 'blue white--text'">
-							{{ item.isDirectory ? 'folder' : 'assignment' }}
-						</v-icon>
-					</v-list-tile-avatar>
-
-					<v-list-tile-content>
-						<v-list-tile-title>{{ item.displayName }}</v-list-tile-title>
-					</v-list-tile-content>
-
-					<v-list-tile-action v-if="!item.isDirectory && item.executing">
-						<v-progress-circular indeterminate color="blue"></v-progress-circular>
-					</v-list-tile-action>
-				</v-list-tile>
+					<v-list-item-action v-if="!item.isDirectory && item.executing">
+						<v-progress-circular class="list-icon" indeterminate color="blue"></v-progress-circular>
+					</v-list-item-action>
+				</v-list-item>
 			</v-list>
 		</v-card-text>
 
 		<v-alert :value="!filelist.length" type="info">
-			No Macros
+			{{ $t('list.macro.noMacros') }}
 		</v-alert>
 	</v-card>
 </template>
@@ -58,7 +49,7 @@
 
 import { mapState, mapGetters, mapActions } from 'vuex'
 
-import { getModifiedDirectory } from '../../store/machine'
+import { getModifiedDirectories } from '../../store/machine'
 import { DisconnectedError } from '../../utils/errors.js'
 import Path from '../../utils/path.js'
 
@@ -66,8 +57,11 @@ export default {
 	computed: {
 		...mapState(['selectedMachine']),
 		...mapGetters(['isConnected', 'uiFrozen']),
-		...mapState('machine/model', ['storages']),
-		isRootDirectory() { return this.directory === Path.macros; }
+		...mapState('machine/model', {
+			macrosDirectory: state => state.directories.macros,
+			volumes: state => state.volumes
+		}),
+		isRootDirectory() { return Path.equals(this.directory, this.macrosDirectory); }
 	},
 	data () {
 		return {
@@ -80,7 +74,7 @@ export default {
 	},
 	methods: {
 		...mapActions('machine', ['sendCode', 'getFileList']),
-		async loadDirectory(directory = Path.macros) {
+		async loadDirectory(directory) {
 			if (this.loading) {
 				return;
 			}
@@ -105,6 +99,9 @@ export default {
 			}
 			this.loading = false;
 		},
+		async refresh() {
+			await this.loadDirectory(this.directory);
+		},
 		async itemClick(item) {
 			if (this.uiFrozen) {
 				return;
@@ -126,21 +123,23 @@ export default {
 			}
 		},
 		async goUp() {
-			await this.loadDirectory(Path.extractFilePath(this.directory));
+			await this.loadDirectory(Path.extractDirectory(this.directory));
 		}
 	},
 	mounted() {
 		// Perform initial load
+		this.directory = this.macrosDirectory;
 		if (this.isConnected) {
-			this.wasMounted = this.storages.length && this.storages[0].mounted;
-			this.loadDirectory();
+			this.wasMounted = (this.volumes.length > 0) && this.volumes[0].mounted;
+			this.refresh();
 		}
 
 		// Keep track of file changes
 		const that = this;
 		this.unsubscribe = this.$store.subscribeAction(async function(action, state) {
-			if (Path.pathAffectsFilelist(getModifiedDirectory(action, state), that.directory, that.filelist)) {
-				await that.loadDirectory(that.directory);
+			if (getModifiedDirectories(action, state).some(directory => Path.equals(directory, that.directory))) {
+				// Refresh the list when a file or directory has been changed
+				await that.refresh();
 			}
 		});
 	},
@@ -148,21 +147,45 @@ export default {
 		this.unsubscribe();
 	},
 	watch: {
-		selectedMachine() {
-			if (this.isConnected) {
-				this.wasMounted = this.storages.length && this.storages[0].mounted;
-				this.loadDirectory();
+		macrosDirectory(to, from) {
+			if (Path.equals(this.directory, from) || !Path.startsWith(this.directory, to)) {
+				this.directory = to;
+			}
+		},
+		isConnected(to) {
+			if (to) {
+				this.wasMounted = (this.volumes.length > 0) && this.volumes[0].mounted;
+				this.refresh();
 			} else {
+				this.directory = Path.macros;
 				this.filelist = [];
 			}
 		},
-		storages: {
+		selectedMachine() {
+			// TODO store current directory per selected machine
+			if (this.isConnected) {
+				this.wasMounted = (this.volumes.length > 0) && this.volumes[0].mounted;
+				this.refresh();
+			} else {
+				this.directory = Path.macros;
+				this.filelist = [];
+			}
+		},
+		volumes: {
 			deep: true,
 			handler() {
-				// Refresh file list when the first storage is mounted or unmounted
-				if (this.isConnected && (!this.storages.length || this.wasMounted !== this.storages[0].mounted)) {
-					this.wasMounted = this.storages.length && this.storages[0].mounted;
-					this.loadDirectory();
+				if (this.isConnected) {
+					const volume = Path.getVolume(this.directory);
+					if (volume >= 0 && volume < this.volumes.length) {
+						const mounted = this.volumes[volume].mounted;
+						if (this.wasMounted !== mounted) {
+							this.wasMounted = mounted;
+							this.refresh();
+						}
+					} else {
+						this.wasMounted = false;
+						this.refresh();
+					}
 				}
 			}
 		}

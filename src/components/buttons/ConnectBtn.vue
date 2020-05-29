@@ -1,5 +1,5 @@
 <template>
-	<v-btn v-bind="$props" :color="buttonColor" :depressed="isBusy" @click="clicked" tabindex="0">
+	<v-btn v-bind="$props" :color="buttonColor" :depressed="isBusy" @click="clicked">
 		<v-icon v-show="!isBusy">{{ buttonIcon }}</v-icon>
 		<v-progress-circular size="20" v-show="isBusy" indeterminate></v-progress-circular>
 		<span class="ml-2">{{ caption }}</span>
@@ -9,24 +9,25 @@
 <script>
 'use strict'
 
-import VBtn from 'vuetify/es5/components/VBtn'
+import { VBtn } from 'vuetify/lib'
 
 import { mapState, mapGetters, mapActions, mapMutations } from 'vuex'
 
 export default {
 	computed: {
 		...mapState(['isConnecting', 'isDisconnecting', 'isLocal']),
+		...mapState('machine', ['isReconnecting']),
 		...mapGetters(['isConnected']),
-		isBusy() { return this.isConnecting || this.isDisconnecting },
+		isBusy() { return this.isConnecting || this.isReconnecting || this.isDisconnecting },
 		buttonColor() {
 			return this.isBusy ? 'warning'
 				: (this.isConnected ? 'primary' : 'success');
 		},
 		buttonIcon() {
-			return this.isConnected ? 'close' : 'power_settings_new';
+			return this.isConnected ? 'mdi-close-circle-outline' : 'mdi-power';
 		},
 		caption() {
-			return this.$t(this.isConnecting ? 'button.connect.connecting'
+			return this.$t((this.isConnecting || this.isReconnecting) ? 'button.connect.connecting'
 				: this.isDisconnecting ? 'button.connect.disconnecting'
 					: this.isConnected ? 'button.connect.disconnect'
 						: 'button.connect.connect');
