@@ -422,7 +422,8 @@ export default {
 			caption: 'Settings',
 			general: 'General',
 			machine: 'Machine-Specific',
-			update: 'Update'
+			update: 'Update',
+			support: '3DP Support'
 		}
 	},
 	notification: {

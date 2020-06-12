@@ -10,6 +10,7 @@ import Job from './Job'
 import Files from './Files'
 import Settings from './Settings'
 
+
 Vue.use(VueRouter)
 
 export const Routing = [
@@ -131,7 +132,7 @@ export const Routing = [
 				caption: 'menu.settings.machine',
 				path: '/Settings/Machine',
 				component: Settings.Machine
-			}
+			},
 			// Update (coming soon)
 			/* {
 				icon: 'mdi-update',
@@ -139,6 +140,13 @@ export const Routing = [
 				path: '/Settings/Update',
 				component: Settings.Update
 			} */
+			//Support
+			{
+				icon: 'mdi-help-circle',
+				caption: 'menu.settings.support',
+				path: '/settings/Support',
+				component: Settings.Support
+			}
 		]
 	}
 ]
@@ -153,4 +161,5 @@ export default new VueRouter({
 			component: Page404
 		}
 	]
-})
+});
+

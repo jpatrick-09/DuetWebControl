@@ -23,7 +23,9 @@
 .container div.v-card {
 	margin: 8px;
 }
-
+.v-list-group--active > .v-list-group__header .v-list-item, .v-list-group--active > .v-list-group__header .v-list-item__content, .v-list-group--active > .v-list-group__header .v-list-group__header__prepend-icon .v-icon {
+	Color: #e83338;
+}
 .empty-table-fix td {
 	padding-left: 0px !important;
 	padding-right: 0px !important;

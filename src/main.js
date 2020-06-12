@@ -14,15 +14,7 @@ import store from './store'
 Vue.config.productionTip = false
 
 Vue.use(plugins)
-Vue.use(Vuetify, {
-	theme:{
-		primary: '#e83338',
-		secondary: '#a6a8ab',
-		info: '#2b3340',
-	},
-	lang: { t: (key, ...params) => i18n.t(key, params) }
-})
-
+Vue.use(Vuetify)
 
 /* eslint-disable no-new */
 new Vue({
@@ -35,6 +27,22 @@ new Vue({
 		icons: {
 			iconfont: 'mdiSvg',
 		},
-		lang: { t: (key, ...params) => i18n.t(key, params) }
+		theme:{
+			themes: {
+				light: {
+					primary: '#2b3340',
+					secondary: '#e83338',
+					accent: '#333',
+					info: '#2b3340'
+						},
+				dark: {
+					primary: '#fff',
+					secondary: '#e83338',
+					accent: '#e83338',
+					info: '#2b3340'
+				},
+					},
+				},
+	lang: { t: (key, ...params) => i18n.t(key, params) }
 	})
 })
