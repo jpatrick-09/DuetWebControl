@@ -21,7 +21,7 @@ export default {
 		isBusy() { return this.isConnecting || this.isReconnecting || this.isDisconnecting },
 		buttonColor() {
 			return this.isBusy ? 'warning'
-				: (this.isConnected ? 'primary' : 'success');
+				: (this.isConnected ? 'secondary' : 'success');
 		},
 		buttonIcon() {
 			return this.isConnected ? 'mdi-close-circle-outline' : 'mdi-power';

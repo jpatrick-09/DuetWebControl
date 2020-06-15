@@ -115,7 +115,7 @@ textarea {
 
 			<v-spacer></v-spacer>
 
-			<upload-btn target="start" class="mr-3 hidden-sm-and-down"></upload-btn>
+			<upload-btn target="gcodes" class="mr-3 hidden-sm-and-down"></upload-btn>
 			<emergency-btn class="hidden-xs-only"></emergency-btn>
 
 			<v-btn icon class="hidden-md-and-up ml-3" :class="toggleGlobalContainerColor" @click="hideGlobalContainer = !hideGlobalContainer">

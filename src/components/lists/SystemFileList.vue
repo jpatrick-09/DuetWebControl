@@ -20,7 +20,7 @@
 			<v-btn class="hidden-sm-and-down mr-3" color="info" :loading="loading" :disabled="uiFrozen" @click="refresh">
 				<v-icon class="mr-1">mdi-refresh</v-icon> {{ $t('button.refresh.caption') }}
 			</v-btn>
-			<upload-btn class="hidden-sm-and-down" :directory="directory" target="system" color="primary" @uploadComplete="uploadComplete"></upload-btn>
+			<upload-btn class="hidden-sm-and-down" :directory="directory" target="system" color="success" @uploadComplete="uploadComplete"></upload-btn>
 		</v-toolbar>
 		
 		<base-file-list ref="filelist" v-model="selection" :directory.sync="directory" :loading.sync="loading" sort-table="sys" @fileClicked="fileClicked" @fileEdited="fileEdited" no-files-text="list.system.noFiles">
@@ -50,7 +50,7 @@
 				<v-icon>mdi-refresh</v-icon>
 			</v-btn>
 
-			<upload-btn fab dark :directory="directory" target="system" color="primary" @uploadComplete="uploadComplete">
+			<upload-btn fab dark :directory="directory" target="system" color="success" @uploadComplete="uploadComplete">
 				<v-icon>mdi-cloud-upload</v-icon>
 			</upload-btn>
 		</v-speed-dial>

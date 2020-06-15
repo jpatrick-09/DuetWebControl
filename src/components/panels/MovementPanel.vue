@@ -9,7 +9,7 @@
 <template>
 	<v-card>
 		<v-card-title>
-			<code-btn v-show="visibleAxes.length" color="primary" small code="G28" :title="$t('button.home.titleAll')" class="ml-0 hidden-sm-and-down">
+			<code-btn v-show="visibleAxes.length" color="info" small code="G28" :title="$t('button.home.titleAll')" class="ml-0 hidden-sm-and-down">
 				{{ $t('button.home.captionAll') }}
 			</code-btn>
 
@@ -21,7 +21,7 @@
 
 			<v-menu offset-y left :disabled="uiFrozen">
 				<template #activator="{ on }">
-					<v-btn v-show="visibleAxes.length" color="primary" small class="mx-0" :disabled="uiFrozen" v-on="on">
+					<v-btn v-show="visibleAxes.length" color="info" small class="mx-0" :disabled="uiFrozen" v-on="on">
 						{{ $t('panel.movement.compensation') }} <v-icon>mdi-menu-down</v-icon>
 					</v-btn>
 				</template>
@@ -68,13 +68,13 @@
 			<!-- Mobile home buttons -->
 			<v-row class="hidden-md-and-up py-2" no-gutters>
 				<v-col>
-					<code-btn color="primary" code="G28" :title="$t('button.home.titleAll')" block tile>
+					<code-btn color="info" code="G28" :title="$t('button.home.titleAll')" block tile>
 						{{ $t('button.home.captionAll') }}
 					</code-btn>
 				</v-col>
 				<template v-if="!isDelta">
 					<v-col v-for="(axis, axisIndex) in visibleAxes" :key="axisIndex">
-						<code-btn :color="axis.homed ? 'primary' : 'warning'" :disabled="uiFrozen" :title="$t('button.home.title', [axis.letter])" :code="`G28 ${axis.letter}`" block tile>
+						<code-btn :color="axis.homed ? 'success' : 'warning'" :disabled="uiFrozen" :title="$t('button.home.title', [axis.letter])" :code="`G28 ${axis.letter}`" block tile>
 
 							{{ $t('button.home.caption', [axis.letter]) }}
 						</code-btn>
@@ -85,7 +85,7 @@
 			<v-row v-for="(axis, axisIndex) in visibleAxes" :key="axisIndex" dense>
 				<!-- Regular home buttons -->
 				<v-col v-if="!isDelta" cols="auto" class="flex-shrink-1 hidden-sm-and-down">
-					<code-btn :color="axis.homed ? 'primary' : 'warning'" :disabled="uiFrozen" :title="$t('button.home.title', [axis.letter])" :code="`G28 ${axis.letter}`" class="ml-0">
+					<code-btn :color="axis.homed ? 'success' : 'warning'" :disabled="uiFrozen" :title="$t('button.home.title', [axis.letter])" :code="`G28 ${axis.letter}`" class="ml-0">
 
 						{{ $t('button.home.caption', [axis.letter]) }}
 					</code-btn>
