@@ -62,11 +62,11 @@ textarea {
 }
 
 .theme--dark textarea {
-	caret-color: #FFF;
+	caret-color: #e83338;
 }
 
 .v-item-group.theme--dark .v-btn__content {
-	color: #FFF !important;
+	color: #e83338 !important;
 }
 
 .v-card__title {

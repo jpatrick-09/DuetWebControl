@@ -45,8 +45,8 @@
 
 					</v-row>
 					<v-row align-content="center" justify="center">
-						<v-btn class="btns" large outlined color="secondary" href='https://support.3dplatform.com/portal/home' target="_blank">Visit Our Support Portal</v-btn>
-						<v-btn class="btns" large outlined color="secondary" href='https://www.3dplatform.com/Spare-Parts' target="_blank">Purchase Spare Parts</v-btn>
+						<v-btn class="btns" large outlined color="secondary" href='https://www.3dplatform.com/Special-Pages/duet-support' target="_blank">Visit Our Support Portal</v-btn>
+						<v-btn class="btns" large outlined color="secondary" href='https://www.3dplatform.com/Special-Pages/duet-spare' target="_blank">Purchase Spare Parts</v-btn>
 					</v-row>
 				</v-card-text>
 				</v-card>

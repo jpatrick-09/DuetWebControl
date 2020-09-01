@@ -13,7 +13,7 @@
 		</v-col>
 
 		<v-col>
-			<v-slider :value="innerValue" @change="$emit('input', $event)" :min="min" :max="max" :disabled="disabled" hide-details thumb-label="always" class="slider"></v-slider>
+			<v-slider :value="innerValue" @change="$emit('input', $event)" :min="min" :max="max" :disabled="disabled" hide-details thumb-color="secondary" thumb-label="always" class="slider"></v-slider>
 		</v-col>
 
 		<v-col cols="auto">
